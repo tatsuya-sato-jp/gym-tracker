@@ -708,21 +708,27 @@
   }
 
   function parseImportFile(text, fileName) {
+    const normalizedText = text.replace(/^\uFEFF/, "");
+
     if (fileName.toLowerCase().endsWith(".json")) {
-      const parsed = JSON.parse(text);
+      const parsed = JSON.parse(normalizedText);
       const data = Array.isArray(parsed) ? parsed : parsed.records;
       if (!Array.isArray(data)) throw new Error("JSONの記録形式が不正です");
       return data.map(createImportedRecord).filter(Boolean);
     }
 
-    const delimiter = text.includes("\t") ? "\t" : ",";
-    return rowsToRecords(parseDelimited(text, delimiter));
+    const delimiter = normalizedText.includes("\t") ? "\t" : ",";
+    return rowsToRecords(parseDelimited(normalizedText, delimiter));
   }
 
   function hasImportHeader(text) {
-    const rows = parseDelimited(text, text.includes("\t") ? "\t" : ",");
+    const normalizedText = text.replace(/^\uFEFF/, "");
+    const rows = parseDelimited(
+      normalizedText,
+      normalizedText.includes("\t") ? "\t" : ","
+    );
     return rows.some((row) =>
-      row.some((value) => ["日付", "date"].includes(value.replace(/^\uFEFF/, "")))
+      row.some((value) => ["日付", "date"].includes(value))
     );
   }
 
@@ -743,7 +749,9 @@
   }
 
   function rowsToRecords(rows) {
-    const headerIndex = rows.findIndex((row) => row.includes("日付") || row.includes("date"));
+    const headerIndex = rows.findIndex(
+      (row) => row.includes("日付") || row.includes("date")
+    );
     if (headerIndex < 0) throw new Error("日付の見出しが見つかりません");
 
     const headers = rows[headerIndex].map((header) => header.replace(/^\uFEFF/, ""));
