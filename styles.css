@@ -340,6 +340,12 @@ select:focus {
   width: 100%;
 }
 
+.upload-formats {
+  flex: 1 1 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .record-list {
   display: grid;
   gap: 12px;

@@ -30,7 +30,6 @@
   const recordCount = $("recordCount");
 
   const filterSplit = $("filterSplit");
-  const filterStore = $("filterStore");
   const importFile = $("importFile");
 
   const chart = $("weightChart");
@@ -291,27 +290,20 @@
     const entries = normalizeExercise(exercise).entries;
     if (!entries.length) return "-";
     return entries.map((entry) => {
-      const values = [];
-      if (entry.weight !== null) values.push(`${formatNumber(entry.weight)}kg`);
-      if (entry.reps !== null) values.push(`${formatNumber(entry.reps)}回`);
-      if (entry.sets !== null) values.push(`${formatNumber(entry.sets)}セット`);
-      return values.join(" × ");
+      return [
+        `重量: ${formatNumber(entry.weight)}kg`,
+        `回数: ${formatNumber(entry.reps)}回`,
+        `セット数: ${formatNumber(entry.sets)}セット`
+      ].join(" / ");
     }).join(" / ");
   }
 
   function getFilteredRecords() {
     const split = filterSplit.value;
-    const storeKeyword = filterStore.value.trim().toLowerCase();
 
     return records
       .filter((record) => {
-        const matchesSplit =
-          !split || normalizeSplits(record.split).includes(split);
-        const matchesStore =
-          !storeKeyword ||
-          String(record.store || "").toLowerCase().includes(storeKeyword);
-
-        return matchesSplit && matchesStore;
+        return !split || normalizeSplits(record.split).includes(split);
       })
       .sort((a, b) => {
         return String(b.date).localeCompare(String(a.date));
@@ -1053,7 +1045,6 @@
   });
 
   filterSplit.addEventListener("change", renderRecords);
-  filterStore.addEventListener("input", renderRecords);
   storeInput.addEventListener("change", updateOtherStoreVisibility);
 
   $("exportButton").addEventListener("click", exportCsv);

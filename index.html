@@ -181,15 +181,11 @@
           </select>
         </div>
 
-        <div class="field">
-          <label for="filterStore">店舗で検索</label>
-          <input type="search" id="filterStore" placeholder="店舗名" />
-        </div>
-
         <div class="toolbar-actions">
           <button class="btn btn-secondary" id="importButton">
             過去記録をアップロード
           </button>
+          <small class="upload-formats">対応形式：CSV / TXT / JSON / Excel（.xlsx）</small>
           <input class="hidden" type="file" id="importFile" accept=".xlsx,.csv,.txt,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain,application/json" />
           <button class="btn btn-success" id="exportButton">
             CSVエクスポート
