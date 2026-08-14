@@ -123,8 +123,11 @@
       reps: numberOrNull(exercise.reps),
       sets: numberOrNull(exercise.sets)
     };
-    const entries = Array.isArray(exercise.entries)
+    const normalizedEntries = Array.isArray(exercise.entries)
       ? exercise.entries.map(normalizeSetEntry).filter(hasSetValue)
+      : [];
+    const entries = normalizedEntries.length
+      ? normalizedEntries
       : hasSetValue(legacyEntry)
         ? [legacyEntry]
         : [];
