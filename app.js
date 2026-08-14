@@ -295,11 +295,11 @@
     const entries = normalizeExercise(exercise).entries;
     if (!entries.length) return "-";
     return entries.map((entry) => {
-      return [
-        `重量: ${formatMetric(entry.weight, "kg")}`,
-        `回数: ${formatMetric(entry.reps, "回")}`,
-        `セット数: ${formatMetric(entry.sets, "セット")}`
-      ].join("、");
+      const values = [];
+      if (entry.weight !== null) values.push(`重量: ${formatMetric(entry.weight, "kg")}`);
+      if (entry.reps !== null) values.push(`回数: ${formatMetric(entry.reps, "回")}`);
+      if (entry.sets !== null) values.push(`セット数: ${formatMetric(entry.sets, "セット")}`);
+      return values.join("、");
     }).join(" / ");
   }
 
