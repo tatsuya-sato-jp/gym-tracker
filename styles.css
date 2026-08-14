@@ -227,6 +227,18 @@ select:focus {
   padding-right: 38px;
 }
 
+.no-spinner {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.no-spinner::-webkit-outer-spin-button,
+.no-spinner::-webkit-inner-spin-button {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .unit {
   position: absolute;
   top: 50%;
