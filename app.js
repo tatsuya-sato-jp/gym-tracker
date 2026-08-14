@@ -285,16 +285,21 @@
     return Number(value).toLocaleString("ja-JP");
   }
 
+  function formatMetric(value, unit) {
+    const formatted = formatNumber(value);
+    return formatted === "-" ? formatted : `${formatted}${unit}`;
+  }
+
   function exerciseText(exercise) {
     if (!exercise) return "-";
     const entries = normalizeExercise(exercise).entries;
     if (!entries.length) return "-";
     return entries.map((entry) => {
       return [
-        `重量: ${formatNumber(entry.weight)}kg`,
-        `回数: ${formatNumber(entry.reps)}回`,
-        `セット数: ${formatNumber(entry.sets)}セット`
-      ].join(" / ");
+        `重量: ${formatMetric(entry.weight, "kg")}`,
+        `回数: ${formatMetric(entry.reps, "回")}`,
+        `セット数: ${formatMetric(entry.sets, "セット")}`
+      ].join("、");
     }).join(" / ");
   }
 
