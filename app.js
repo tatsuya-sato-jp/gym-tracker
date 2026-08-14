@@ -206,7 +206,7 @@
     row.className = "set-entry";
     row.innerHTML = `
       <div class="exercise-inputs">
-        <div class="field"><label>重量</label><div class="unit-input"><input type="number" name="weight" min="0" max="1000" step="0.5" placeholder="0" /><span class="unit">kg</span></div></div>
+        <div class="field"><label>重量</label><div class="unit-input"><input type="number" name="weight" class="no-spinner" inputmode="decimal" min="0" max="1000" step="0.5" placeholder="0" /><span class="unit">kg</span></div></div>
         <div class="field"><label>回数</label><div class="unit-input"><input type="number" name="reps" min="0" max="1000" step="1" placeholder="0" /><span class="unit">回</span></div></div>
         <div class="field"><label>セット数</label><div class="unit-input"><input type="number" name="sets" min="0" max="1000" step="1" placeholder="0" /><span class="unit">セット</span></div></div>
       </div>
@@ -644,7 +644,16 @@
   }
 
   function normalizeImportDate(value) {
-    const match = String(value || "").trim().match(
+    const rawValue = String(value ?? "").trim();
+    const serial = Number(rawValue);
+
+    if (rawValue !== "" && Number.isFinite(serial) && serial > 0) {
+      // Excel は日付をシリアル値（1899-12-30 起点）で保持することがある
+      const date = new Date(Math.round(serial) * 86400000 + Date.UTC(1899, 11, 30));
+      return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+    }
+
+    const match = rawValue.match(
       /^(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})日?$/
     );
     if (!match) return "";
@@ -707,7 +716,10 @@
     }
 
     const delimiter = text.includes("\t") ? "\t" : ",";
-    const rows = parseDelimited(text, delimiter);
+    return rowsToRecords(parseDelimited(text, delimiter));
+  }
+
+  function rowsToRecords(rows) {
     const headerIndex = rows.findIndex((row) => row.includes("日付") || row.includes("date"));
     if (headerIndex < 0) throw new Error("日付の見出しが見つかりません");
 
@@ -735,9 +747,155 @@
     }).filter(Boolean);
   }
 
+  function isExcelFile(fileName) {
+    return /\.xlsx$/i.test(fileName);
+  }
+
+  function findEndOfCentralDirectory(view) {
+    for (let offset = view.byteLength - 22; offset >= 0; offset -= 1) {
+      if (view.getUint32(offset, true) === 0x06054b50) return offset;
+    }
+    throw new Error("Excelファイルを読み込めません");
+  }
+
+  async function inflateZipEntry(data, method) {
+    if (method === 0) return new TextDecoder().decode(data);
+    if (method !== 8) throw new Error("対応していない圧縮形式のExcelです");
+    if (typeof DecompressionStream !== "function") {
+      throw new Error("この端末ではExcelを読み込めません");
+    }
+
+    const stream = new Blob([data])
+      .stream()
+      .pipeThrough(new DecompressionStream("deflate-raw"));
+    return new Response(stream).text();
+  }
+
+  async function readZipEntries(buffer, isWanted) {
+    const view = new DataView(buffer);
+    const bytes = new Uint8Array(buffer);
+    const eocd = findEndOfCentralDirectory(view);
+    const count = view.getUint16(eocd + 10, true);
+    const decoder = new TextDecoder();
+    const entries = {};
+
+    let offset = view.getUint32(eocd + 16, true);
+
+    for (let index = 0; index < count; index += 1) {
+      if (offset + 46 > view.byteLength) break;
+      if (view.getUint32(offset, true) !== 0x02014b50) break;
+
+      const method = view.getUint16(offset + 10, true);
+      const compressedSize = view.getUint32(offset + 20, true);
+      const nameLength = view.getUint16(offset + 28, true);
+      const extraLength = view.getUint16(offset + 30, true);
+      const commentLength = view.getUint16(offset + 32, true);
+      const localOffset = view.getUint32(offset + 42, true);
+      const name = decoder.decode(
+        bytes.subarray(offset + 46, offset + 46 + nameLength)
+      );
+
+      if (isWanted(name)) {
+        if (compressedSize === 0xffffffff || localOffset === 0xffffffff) {
+          throw new Error("対応していない形式のExcelです");
+        }
+
+        const dataStart =
+          localOffset +
+          30 +
+          view.getUint16(localOffset + 26, true) +
+          view.getUint16(localOffset + 28, true);
+        entries[name] = await inflateZipEntry(
+          bytes.subarray(dataStart, dataStart + compressedSize),
+          method
+        );
+      }
+
+      offset += 46 + nameLength + extraLength + commentLength;
+    }
+
+    return entries;
+  }
+
+  function parseXml(text) {
+    const doc = new DOMParser().parseFromString(text, "application/xml");
+    if (doc.querySelector("parsererror")) {
+      throw new Error("Excelの内容を解析できません");
+    }
+    return doc;
+  }
+
+  function parseSharedStrings(text) {
+    if (!text) return [];
+    return [...parseXml(text).querySelectorAll("sst > si")].map((item) =>
+      [...item.querySelectorAll("t")].map((node) => node.textContent).join("")
+    );
+  }
+
+  function columnIndex(reference) {
+    const letters = String(reference || "").replace(/[^A-Z]/gi, "").toUpperCase();
+    return [...letters].reduce(
+      (total, letter) => total * 26 + (letter.charCodeAt(0) - 64),
+      0
+    ) - 1;
+  }
+
+  function readCellValue(cell, sharedStrings) {
+    const type = cell.getAttribute("t");
+
+    if (type === "s") {
+      const index = Number(cell.querySelector("v")?.textContent);
+      return sharedStrings[index] ?? "";
+    }
+
+    if (type === "inlineStr") {
+      return [...cell.querySelectorAll("is t")]
+        .map((node) => node.textContent)
+        .join("");
+    }
+
+    return (cell.querySelector("v")?.textContent || "").trim();
+  }
+
+  async function readXlsxRows(buffer) {
+    const entries = await readZipEntries(
+      buffer,
+      (name) =>
+        name === "xl/sharedStrings.xml" ||
+        /^xl\/worksheets\/sheet\d+\.xml$/i.test(name)
+    );
+
+    const sheetName = Object.keys(entries)
+      .filter((name) => name !== "xl/sharedStrings.xml")
+      .sort()[0];
+    if (!sheetName) throw new Error("Excelのシートが見つかりません");
+
+    const sharedStrings = parseSharedStrings(entries["xl/sharedStrings.xml"]);
+    const rows = [];
+
+    parseXml(entries[sheetName])
+      .querySelectorAll("sheetData > row")
+      .forEach((rowNode) => {
+        const cells = [];
+        rowNode.querySelectorAll("c").forEach((cell) => {
+          const index = columnIndex(cell.getAttribute("r"));
+          if (index >= 0) cells[index] = readCellValue(cell, sharedStrings);
+        });
+
+        const row = Array.from({ length: cells.length }, (_, index) =>
+          cells[index] === undefined ? "" : cells[index]
+        );
+        if (row.some(Boolean)) rows.push(row);
+      });
+
+    return rows;
+  }
+
   async function importRecords(file) {
     try {
-      const imported = parseImportFile(await file.text(), file.name);
+      const imported = isExcelFile(file.name)
+        ? rowsToRecords(await readXlsxRows(await file.arrayBuffer()))
+        : parseImportFile(await file.text(), file.name);
       if (imported.length === 0) {
         showToast("取り込める記録が見つかりませんでした");
         return;
