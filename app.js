@@ -1182,7 +1182,7 @@
       showToast(`${imported.length}件の記録を保存しました`);
     } catch (error) {
       console.error("記録の取り込みに失敗しました", error);
-      const reason = error && error.message ? error.message : String(error);
+      const reason = error?.message || String(error);
       showToast(`ファイルを読み込めませんでした（原因: ${reason}）`, 5000);
     }
   }
