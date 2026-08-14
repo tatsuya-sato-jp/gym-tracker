@@ -524,32 +524,27 @@
     return `"${stringValue.replaceAll('"', '""')}"`;
   }
 
-  function exportCsv() {
-    if (records.length === 0) {
-      showToast("エクスポートする記録がありません");
-      return;
-    }
+  const EXPORT_HEADERS = [
+    "日付",
+    "店舗",
+    "部位",
+    "体重(kg)",
+    "スクワット重量(kg)",
+    "スクワット回数",
+    "スクワットセット数",
+    "スクワットセット詳細(JSON)",
+    "ベンチプレス重量(kg)",
+    "ベンチプレス回数",
+    "ベンチプレスセット数",
+    "ベンチプレスセット詳細(JSON)",
+    "デッドリフト重量(kg)",
+    "デッドリフト回数",
+    "デッドリフトセット数",
+    "デッドリフトセット詳細(JSON)"
+  ];
 
-    const headers = [
-      "日付",
-      "店舗",
-      "部位",
-      "体重(kg)",
-      "スクワット重量(kg)",
-      "スクワット回数",
-      "スクワットセット数",
-      "スクワットセット詳細(JSON)",
-      "ベンチプレス重量(kg)",
-      "ベンチプレス回数",
-      "ベンチプレスセット数",
-      "ベンチプレスセット詳細(JSON)",
-      "デッドリフト重量(kg)",
-      "デッドリフト回数",
-      "デッドリフトセット数",
-      "デッドリフトセット詳細(JSON)"
-    ];
-
-    const rows = records
+  function buildExportRows() {
+    return records
       .slice()
       .sort((a, b) => String(a.date).localeCompare(String(b.date)))
       .map((record) => {
@@ -576,9 +571,30 @@
           JSON.stringify(deadlift.entries)
         ];
       });
+  }
 
+  function downloadBlob(blob, fileName) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    URL.revokeObjectURL(url);
+  }
+
+  function exportCsv() {
+    if (records.length === 0) {
+      showToast("エクスポートする記録がありません");
+      return;
+    }
+
+    const rows = buildExportRows();
     const csv = [
-      headers.map(csvEscape).join(","),
+      EXPORT_HEADERS.map(csvEscape).join(","),
       ...rows.map((row) => row.map(csvEscape).join(","))
     ].join("\r\n");
 
@@ -587,18 +603,25 @@
       type: "text/csv;charset=utf-8;"
     });
 
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    const today = getToday();
-
-    link.href = url;
-    link.download = `筋トレ記録_${today}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `筋トレ記録_${getToday()}.csv`);
     showToast("CSVをダウンロードしました");
+  }
+
+  async function exportXlsx() {
+    if (records.length === 0) {
+      showToast("エクスポートする記録がありません");
+      return;
+    }
+
+    try {
+      const rows = buildExportRows();
+      const blob = await buildXlsxBlob(EXPORT_HEADERS, rows);
+      downloadBlob(blob, `筋トレ記録_${getToday()}.xlsx`);
+      showToast("Excel（.xlsx）をダウンロードしました");
+    } catch (error) {
+      console.error("Excelの書き出しに失敗しました", error);
+      showToast(`Excelの書き出しに失敗しました: ${error.message || error}`);
+    }
   }
 
   function parseDelimited(text, delimiter) {
@@ -779,6 +802,226 @@
     return /\.xlsx$/i.test(fileName);
   }
 
+  const CRC_TABLE = (() => {
+    const table = new Uint32Array(256);
+    for (let index = 0; index < 256; index += 1) {
+      let value = index;
+      for (let bit = 0; bit < 8; bit += 1) {
+        value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+      }
+      table[index] = value >>> 0;
+    }
+    return table;
+  })();
+
+  function crc32(bytes) {
+    let crc = 0xffffffff;
+    for (let index = 0; index < bytes.length; index += 1) {
+      crc = CRC_TABLE[(crc ^ bytes[index]) & 0xff] ^ (crc >>> 8);
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+
+  async function deflateRawBytes(bytes) {
+    if (typeof CompressionStream !== "function") return null;
+
+    const stream = new Blob([bytes])
+      .stream()
+      .pipeThrough(new CompressionStream("deflate-raw"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  function concatBytes(chunks) {
+    const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const result = new Uint8Array(total);
+    let offset = 0;
+    chunks.forEach((chunk) => {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    });
+    return result;
+  }
+
+  function writeUint16LE(value) {
+    const bytes = new Uint8Array(2);
+    new DataView(bytes.buffer).setUint16(0, value, true);
+    return bytes;
+  }
+
+  function writeUint32LE(value) {
+    const bytes = new Uint8Array(4);
+    new DataView(bytes.buffer).setUint32(0, value, true);
+    return bytes;
+  }
+
+  async function buildZipBlob(files) {
+    const encoder = new TextEncoder();
+    const localChunks = [];
+    const centralChunks = [];
+    let offset = 0;
+
+    for (const file of files) {
+      const nameBytes = encoder.encode(file.name);
+      const dataBytes = encoder.encode(file.content);
+      const compressed = await deflateRawBytes(dataBytes);
+      const useCompression = Boolean(compressed);
+      const storedBytes = useCompression ? compressed : dataBytes;
+      const method = useCompression ? 8 : 0;
+      const crc = crc32(dataBytes);
+
+      const localHeader = concatBytes([
+        writeUint32LE(0x04034b50),
+        writeUint16LE(20),
+        writeUint16LE(0x0800),
+        writeUint16LE(method),
+        writeUint16LE(0),
+        writeUint16LE(0),
+        writeUint32LE(crc),
+        writeUint32LE(storedBytes.length),
+        writeUint32LE(dataBytes.length),
+        writeUint16LE(nameBytes.length),
+        writeUint16LE(0)
+      ]);
+
+      localChunks.push(localHeader, nameBytes, storedBytes);
+
+      const centralHeader = concatBytes([
+        writeUint32LE(0x02014b50),
+        writeUint16LE(20),
+        writeUint16LE(20),
+        writeUint16LE(0x0800),
+        writeUint16LE(method),
+        writeUint16LE(0),
+        writeUint16LE(0),
+        writeUint32LE(crc),
+        writeUint32LE(storedBytes.length),
+        writeUint32LE(dataBytes.length),
+        writeUint16LE(nameBytes.length),
+        writeUint16LE(0),
+        writeUint16LE(0),
+        writeUint16LE(0),
+        writeUint16LE(0),
+        writeUint32LE(0),
+        writeUint32LE(offset)
+      ]);
+
+      centralChunks.push(centralHeader, nameBytes);
+      offset += localHeader.length + nameBytes.length + storedBytes.length;
+    }
+
+    const centralDirectory = concatBytes(centralChunks);
+    const centralDirectoryOffset = offset;
+    const eocd = concatBytes([
+      writeUint32LE(0x06054b50),
+      writeUint16LE(0),
+      writeUint16LE(0),
+      writeUint16LE(files.length),
+      writeUint16LE(files.length),
+      writeUint32LE(centralDirectory.length),
+      writeUint32LE(centralDirectoryOffset),
+      writeUint16LE(0)
+    ]);
+
+    return new Blob(
+      [...localChunks, centralDirectory, eocd],
+      { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }
+    );
+  }
+
+  function xmlEscape(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&apos;");
+  }
+
+  function xlsxColumnLetters(index) {
+    let value = index + 1;
+    let letters = "";
+    while (value > 0) {
+      const remainder = (value - 1) % 26;
+      letters = String.fromCharCode(65 + remainder) + letters;
+      value = Math.floor((value - 1) / 26);
+    }
+    return letters;
+  }
+
+  function buildXlsxCellXml(value, columnIndexValue, rowNumber) {
+    const reference = `${xlsxColumnLetters(columnIndexValue)}${rowNumber}`;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return `<c r="${reference}"><v>${value}</v></c>`;
+    }
+
+    const text = value === null || value === undefined ? "" : String(value);
+    if (text === "") return `<c r="${reference}" t="inlineStr"><is><t/></is></c>`;
+    return `<c r="${reference}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(text)}</t></is></c>`;
+  }
+
+  function buildXlsxSheetXml(headers, rows) {
+    const headerRow = `<row r="1">${headers
+      .map((header, index) => buildXlsxCellXml(header, index, 1))
+      .join("")}</row>`;
+
+    const dataRows = rows
+      .map(
+        (row, rowIndex) =>
+          `<row r="${rowIndex + 2}">${row
+            .map((value, columnIndexValue) =>
+              buildXlsxCellXml(value, columnIndexValue, rowIndex + 2)
+            )
+            .join("")}</row>`
+      )
+      .join("");
+
+    return (
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+      `<sheetData>${headerRow}${dataRows}</sheetData>` +
+      "</worksheet>"
+    );
+  }
+
+  async function buildXlsxBlob(headers, rows) {
+    const contentTypes =
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+      "</Types>";
+
+    const rootRels =
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+      "</Relationships>";
+
+    const workbook =
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<sheets><sheet name="記録" sheetId="1" r:id="rId1"/></sheets>' +
+      "</workbook>";
+
+    const workbookRels =
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+      "</Relationships>";
+
+    const sheet = buildXlsxSheetXml(headers, rows);
+
+    return buildZipBlob([
+      { name: "[Content_Types].xml", content: contentTypes },
+      { name: "_rels/.rels", content: rootRels },
+      { name: "xl/workbook.xml", content: workbook },
+      { name: "xl/_rels/workbook.xml.rels", content: workbookRels },
+      { name: "xl/worksheets/sheet1.xml", content: sheet }
+    ]);
+  }
+
   function findEndOfCentralDirectory(view) {
     for (let offset = view.byteLength - 22; offset >= 0; offset -= 1) {
       if (view.getUint32(offset, true) === 0x06054b50) return offset;
@@ -939,18 +1182,19 @@
       showToast(`${imported.length}件の記録を保存しました`);
     } catch (error) {
       console.error("記録の取り込みに失敗しました", error);
-      showToast("ファイルを読み込めませんでした。CSV・JSON・Excel（.xlsx）形式を確認してください");
+      const reason = error && error.message ? error.message : String(error);
+      showToast(`ファイルを読み込めませんでした（原因: ${reason}）`, 5000);
     }
   }
 
-  function showToast(message) {
+  function showToast(message, duration = 2400) {
     toast.textContent = message;
     toast.classList.add("show");
 
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
       toast.classList.remove("show");
-    }, 2400);
+    }, duration);
   }
 
   form.addEventListener("submit", (event) => {
@@ -1054,6 +1298,7 @@
 
   $("exportButton").addEventListener("click", exportCsv);
   $("exportTopButton").addEventListener("click", exportCsv);
+  $("exportXlsxButton").addEventListener("click", exportXlsx);
   $("importButton").addEventListener("click", () => importFile.click());
   importFile.addEventListener("change", () => {
     const [file] = importFile.files;
