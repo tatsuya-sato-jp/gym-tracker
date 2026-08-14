@@ -207,8 +207,8 @@
     row.innerHTML = `
       <div class="exercise-inputs">
         <div class="field"><label>重量</label><div class="unit-input"><input type="number" name="weight" class="no-spinner" inputmode="decimal" min="0" max="1000" step="0.5" placeholder="0" /><span class="unit">kg</span></div></div>
-        <div class="field"><label>回数</label><div class="unit-input"><input type="number" name="reps" min="0" max="1000" step="1" placeholder="0" /><span class="unit">回</span></div></div>
-        <div class="field"><label>セット数</label><div class="unit-input"><input type="number" name="sets" min="0" max="1000" step="1" placeholder="0" /><span class="unit">セット</span></div></div>
+        <div class="field"><label>回数</label><div class="unit-input"><input type="number" name="reps" class="no-spinner" inputmode="numeric" min="0" max="1000" step="1" placeholder="0" /><span class="unit">回</span></div></div>
+        <div class="field"><label>セット数</label><div class="unit-input"><input type="number" name="sets" class="no-spinner" inputmode="numeric" min="0" max="1000" step="1" placeholder="0" /><span class="unit">セット</span></div></div>
       </div>
       <button type="button" class="btn btn-danger btn-small remove-set-button">この重量を削除</button>
     `;
@@ -708,19 +708,50 @@
   }
 
   function parseImportFile(text, fileName) {
+    const normalizedText = text.replace(/^\uFEFF/, "");
+
     if (fileName.toLowerCase().endsWith(".json")) {
-      const parsed = JSON.parse(text);
+      const parsed = JSON.parse(normalizedText);
       const data = Array.isArray(parsed) ? parsed : parsed.records;
       if (!Array.isArray(data)) throw new Error("JSONの記録形式が不正です");
       return data.map(createImportedRecord).filter(Boolean);
     }
 
-    const delimiter = text.includes("\t") ? "\t" : ",";
-    return rowsToRecords(parseDelimited(text, delimiter));
+    const delimiter = normalizedText.includes("\t") ? "\t" : ",";
+    return rowsToRecords(parseDelimited(normalizedText, delimiter));
+  }
+
+  function hasImportHeader(text) {
+    const normalizedText = text.replace(/^\uFEFF/, "");
+    const rows = parseDelimited(
+      normalizedText,
+      normalizedText.includes("\t") ? "\t" : ","
+    );
+    return rows.some((row) =>
+      row.some((value) => ["日付", "date"].includes(value))
+    );
+  }
+
+  async function readImportText(file) {
+    const buffer = await file.arrayBuffer();
+    const utf8Text = new TextDecoder("utf-8").decode(buffer);
+
+    if (file.name.toLowerCase().endsWith(".json") || hasImportHeader(utf8Text)) {
+      return utf8Text;
+    }
+
+    try {
+      const shiftJisText = new TextDecoder("shift_jis").decode(buffer);
+      return hasImportHeader(shiftJisText) ? shiftJisText : utf8Text;
+    } catch {
+      return utf8Text;
+    }
   }
 
   function rowsToRecords(rows) {
-    const headerIndex = rows.findIndex((row) => row.includes("日付") || row.includes("date"));
+    const headerIndex = rows.findIndex(
+      (row) => row.includes("日付") || row.includes("date")
+    );
     if (headerIndex < 0) throw new Error("日付の見出しが見つかりません");
 
     const headers = rows[headerIndex].map((header) => header.replace(/^\uFEFF/, ""));
@@ -898,7 +929,7 @@
     try {
       const imported = isExcelFile(file.name)
         ? rowsToRecords(await readXlsxRows(await file.arrayBuffer()))
-        : parseImportFile(await file.text(), file.name);
+        : parseImportFile(await readImportText(file), file.name);
       if (imported.length === 0) {
         showToast("取り込める記録が見つかりませんでした");
         return;
@@ -911,7 +942,7 @@
       showToast(`${imported.length}件の記録を保存しました`);
     } catch (error) {
       console.error("記録の取り込みに失敗しました", error);
-      showToast("ファイルを読み込めませんでした");
+      showToast("ファイルを読み込めませんでした。CSV・JSON・Excel（.xlsx）形式を確認してください");
     }
   }
 
