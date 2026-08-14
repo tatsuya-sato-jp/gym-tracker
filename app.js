@@ -934,7 +934,7 @@
       showToast(`${imported.length}件の記録を保存しました`);
     } catch (error) {
       console.error("記録の取り込みに失敗しました", error);
-      showToast(error instanceof Error ? error.message : "ファイルを読み込めませんでした");
+      showToast("ファイルを読み込めませんでした。CSV・JSON・Excel（.xlsx）形式を確認してください");
     }
   }
 
