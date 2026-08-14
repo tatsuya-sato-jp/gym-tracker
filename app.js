@@ -867,7 +867,10 @@
 
     const sheetName = Object.keys(entries)
       .filter((name) => name !== "xl/sharedStrings.xml")
-      .sort()[0];
+      .sort(
+        (a, b) =>
+          Number(a.match(/(\d+)\.xml$/)[1]) - Number(b.match(/(\d+)\.xml$/)[1])
+      )[0];
     if (!sheetName) throw new Error("Excelのシートが見つかりません");
 
     const sharedStrings = parseSharedStrings(entries["xl/sharedStrings.xml"]);
