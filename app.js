@@ -30,7 +30,6 @@
   const recordCount = $("recordCount");
 
   const filterSplit = $("filterSplit");
-  const filterStore = $("filterStore");
   const importFile = $("importFile");
 
   const chart = $("weightChart");
@@ -286,32 +285,30 @@
     return Number(value).toLocaleString("ja-JP");
   }
 
+  function formatMetric(value, unit) {
+    const formatted = formatNumber(value);
+    return formatted === "-" ? formatted : `${formatted}${unit}`;
+  }
+
   function exerciseText(exercise) {
     if (!exercise) return "-";
     const entries = normalizeExercise(exercise).entries;
     if (!entries.length) return "-";
     return entries.map((entry) => {
       const values = [];
-      if (entry.weight !== null) values.push(`${formatNumber(entry.weight)}kg`);
-      if (entry.reps !== null) values.push(`${formatNumber(entry.reps)}回`);
-      if (entry.sets !== null) values.push(`${formatNumber(entry.sets)}セット`);
-      return values.join(" × ");
+      if (entry.weight !== null) values.push(`重量: ${formatMetric(entry.weight, "kg")}`);
+      if (entry.reps !== null) values.push(`回数: ${formatMetric(entry.reps, "回")}`);
+      if (entry.sets !== null) values.push(`セット数: ${formatMetric(entry.sets, "セット")}`);
+      return values.join("、");
     }).join(" / ");
   }
 
   function getFilteredRecords() {
     const split = filterSplit.value;
-    const storeKeyword = filterStore.value.trim().toLowerCase();
 
     return records
       .filter((record) => {
-        const matchesSplit =
-          !split || normalizeSplits(record.split).includes(split);
-        const matchesStore =
-          !storeKeyword ||
-          String(record.store || "").toLowerCase().includes(storeKeyword);
-
-        return matchesSplit && matchesStore;
+        return !split || normalizeSplits(record.split).includes(split);
       })
       .sort((a, b) => {
         return String(b.date).localeCompare(String(a.date));
@@ -1053,7 +1050,6 @@
   });
 
   filterSplit.addEventListener("change", renderRecords);
-  filterStore.addEventListener("input", renderRecords);
   storeInput.addEventListener("change", updateOtherStoreVisibility);
 
   $("exportButton").addEventListener("click", exportCsv);
