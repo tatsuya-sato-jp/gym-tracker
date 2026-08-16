@@ -97,12 +97,27 @@
     return Number.isFinite(number) ? number : null;
   }
 
+  function normalizeSplitLabel(value) {
+    const normalized = String(value ?? "").trim().toLowerCase();
+    if (!normalized) return "";
+    if (/^(push|プッシュ)$/.test(normalized)) return "Push";
+    if (/^(pull|プル)$/.test(normalized)) return "Pull";
+    if (/^(legs?|脚|足|レッグ)$/.test(normalized)) return "Legs";
+    return String(value).trim();
+  }
+
   function normalizeSplits(value) {
     const values = Array.isArray(value)
       ? value
-      : String(value || "").split(/[,、/]/);
+      : String(value || "").split(/[\s,、/|｜]+/);
 
-    return [...new Set(values.map((item) => String(item).trim()).filter(Boolean))];
+    return [
+      ...new Set(
+        values
+          .map((item) => normalizeSplitLabel(item))
+          .filter(Boolean)
+      )
+    ];
   }
 
   function normalizeRecord(record) {
@@ -350,22 +365,17 @@
 
       article.innerHTML = `
         <div class="record-header">
-          <div>
+          <div class="record-summary">
             <div class="record-date">${escapeHtml(formatDate(record.date))}</div>
             <div class="record-store">📍 ${escapeHtml(record.store || "店舗未入力")}</div>
+            <span class="badge">${escapeHtml(normalizeSplits(record.split).join(" / ") || "-")}</span>
           </div>
-          <span class="badge">${escapeHtml(normalizeSplits(record.split).join(" / ") || "-")}</span>
+          <div class="record-weight">${escapeHtml(formatNumber(record.bodyWeight))}kg</div>
         </div>
 
         <div class="record-details">
-          <div class="detail">
-            <div class="detail-label">体重</div>
-            <div class="detail-value">
-              ${escapeHtml(formatNumber(record.bodyWeight))}kg
-            </div>
-          </div>
           ${exercisesHtml}
-          <div class="detail">
+          <div class="detail detail-note">
             <div class="detail-label">備考</div>
             <div class="detail-value">
               ${escapeHtml(record.note || "-")}
@@ -419,7 +429,7 @@
           Number.isFinite(Number(record.bodyWeight))
       )
       .sort((a, b) => String(a.date).localeCompare(String(b.date)));
-    const data = filterChartData(allData);
+    const data = compressChartData(filterChartData(allData), width);
 
     chartSummary.textContent = chartRange.value === "all"
       ? `${data.length}件`
@@ -485,19 +495,25 @@
     context.textAlign = "center";
     context.textBaseline = "top";
 
-    const labelStep = Math.max(1, Math.ceil(data.length / 5));
+    const firstDate = data[0]?.date || "";
+    const lastDate = data[data.length - 1]?.date || "";
+    const spanDays = Math.max(
+      1,
+      Math.round((new Date(`${lastDate}T00:00:00`) - new Date(`${firstDate}T00:00:00`)) / 86400000)
+    );
+    const longRange = spanDays >= 180;
+    const labelStep = Math.max(1, Math.ceil(data.length / 6));
 
     data.forEach((item, index) => {
-      if (
-        index % labelStep !== 0 &&
-        index !== data.length - 1
-      ) {
-        return;
-      }
+      const isLast = index === data.length - 1;
+      const showByStep = index % labelStep === 0;
+      const showMonthStart = longRange && /-\d{2}$/.test(item.date) && item.date.endsWith("-01");
+      if (!isLast && !showByStep && !showMonthStart) return;
 
-      const date = item.date.replaceAll("-", "/");
+      const [year, month, day] = item.date.split("-");
+      const label = longRange ? `${year}/${month}` : `${year}/${month}/${day}`;
       context.fillStyle = "#6b7280";
-      context.fillText(date, x(index), height - padding.bottom + 12);
+      context.fillText(label, x(index), height - padding.bottom + 12);
     });
 
     context.beginPath();
@@ -519,18 +535,20 @@
     context.lineCap = "round";
     context.stroke();
 
-    data.forEach((item, index) => {
-      const pointX = x(index);
-      const pointY = y(Number(item.bodyWeight));
+    if (data.length <= 80) {
+      data.forEach((item, index) => {
+        const pointX = x(index);
+        const pointY = y(Number(item.bodyWeight));
 
-      context.beginPath();
-      context.arc(pointX, pointY, 5, 0, Math.PI * 2);
-      context.fillStyle = "#ffffff";
-      context.fill();
-      context.strokeStyle = "#2563eb";
-      context.lineWidth = 3;
-      context.stroke();
-    });
+        context.beginPath();
+        context.arc(pointX, pointY, 5, 0, Math.PI * 2);
+        context.fillStyle = "#ffffff";
+        context.fill();
+        context.strokeStyle = "#2563eb";
+        context.lineWidth = 3;
+        context.stroke();
+      });
+    }
   }
 
   function filterChartData(data) {
@@ -545,6 +563,18 @@
     startDate.setMonth(startDate.getMonth() - months);
     const start = startDate.toISOString().slice(0, 10);
     return data.filter((record) => record.date >= start);
+  }
+
+  function compressChartData(data, width) {
+    const maxPoints = Math.max(40, Math.floor(width / 7));
+    if (data.length <= maxPoints) return data;
+
+    const sampled = [];
+    const step = (data.length - 1) / (maxPoints - 1);
+    for (let index = 0; index < maxPoints; index += 1) {
+      sampled.push(data[Math.round(index * step)]);
+    }
+    return sampled;
   }
 
   function csvEscape(value) {
@@ -698,12 +728,7 @@
   }
 
   function mapSplitLabel(value) {
-    const normalized = String(value ?? "").trim().toLowerCase();
-    if (!normalized) return "";
-    if (/(^push$|プッシュ)/i.test(normalized)) return "Push";
-    if (/(^pull$|プル)/i.test(normalized)) return "Pull";
-    if (/(^legs$|脚|足|レッグ)/i.test(normalized)) return "Legs";
-    return String(value).trim();
+    return normalizeSplitLabel(value);
   }
 
   function getImportSplits(data) {

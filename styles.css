@@ -369,6 +369,13 @@ textarea:focus {
   margin-bottom: 9px;
 }
 
+.record-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
 .record-date {
   font-size: 16px;
   font-weight: 800;
@@ -377,7 +384,16 @@ textarea:focus {
 .record-store {
   color: var(--muted);
   font-size: 13px;
-  margin-top: 2px;
+}
+
+.record-weight {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2937;
+  white-space: nowrap;
+  background: #eef2ff;
+  border-radius: 999px;
+  padding: 4px 10px;
 }
 
 .badge {
@@ -414,6 +430,10 @@ textarea:focus {
   margin-top: 2px;
   font-size: 14px;
   font-weight: 700;
+}
+
+.detail-note {
+  grid-column: 1 / -1;
 }
 
 .record-actions {
