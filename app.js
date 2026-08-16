@@ -538,7 +538,8 @@
     if (!latestDate) return data;
 
     const startDate = new Date(`${latestDate}T00:00:00`);
-    const months = chartRange.value === "1m" ? 1 : chartRange.value === "3m" ? 3 : 12;
+    const months = { "1m": 1, "3m": 3, "1y": 12 }[chartRange.value];
+    if (!months) return data;
     startDate.setMonth(startDate.getMonth() - months);
     const start = startDate.toISOString().slice(0, 10);
     return data.filter((record) => record.date >= start);
