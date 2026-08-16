@@ -421,7 +421,9 @@
       .sort((a, b) => String(a.date).localeCompare(String(b.date)));
     const data = filterChartData(allData);
 
-    chartSummary.textContent = `${data.length}件`;
+    chartSummary.textContent = chartRange.value === "all"
+      ? `${data.length}件`
+      : `${data.length}/${allData.length}件`;
 
     if (data.length === 0) {
       chart.classList.add("hidden");
