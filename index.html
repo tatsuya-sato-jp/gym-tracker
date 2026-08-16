@@ -40,14 +40,45 @@
   </header>
 
   <main class="container">
+    <section class="card" id="authCard">
+      <h2 class="card-title">
+        <span>クラウド同期</span>
+        <small id="syncStatus">ローカルモード</small>
+      </h2>
+      <p class="notice" id="authNotice">
+        Googleログインすると、Pixel 10 とパソコンで同じ記録を使えます。
+      </p>
+      <p class="notice notice-warning hidden" id="firebaseSetupNotice">
+        Firebaseの設定が未入力です。READMEの手順で設定するとクラウド同期できます。設定前でもこの端末の記録は利用できます。
+      </p>
+      <div class="auth-row">
+        <div class="auth-user">
+          <strong id="authStatus">Googleログインが必要です</strong>
+          <small id="userEmail">未ログイン</small>
+        </div>
+        <div class="auth-actions">
+          <button type="button" class="btn btn-primary" id="loginButton">Googleでログイン</button>
+          <button type="button" class="btn btn-secondary hidden" id="logoutButton">ログアウト</button>
+        </div>
+      </div>
+      <div class="auth-row">
+        <button type="button" class="btn btn-secondary hidden" id="migrateButton">
+          この端末の既存記録をFirestoreへ移行
+        </button>
+        <small id="migrateHint" class="upload-formats hidden">
+          先に「CSV出力」でバックアップしてから移行してください（1回のみ）。
+        </small>
+      </div>
+    </section>
+
     <section class="card" id="formCard">
       <h2 class="card-title">
         <span id="formTitle">トレーニングを追加</span>
         <small id="editingLabel"></small>
       </h2>
 
-      <p class="notice">
-        記録はこの端末のブラウザ内に保存されます。
+      <p class="notice" id="storageNotice">
+        記録はこの端末のブラウザ内に保存されます（クラウド同期を有効化するとFirestoreにも保存されます）。
       </p>
 
       <form id="workoutForm">
@@ -219,13 +250,17 @@
       </div>
     </section>
 
-    <p class="footer-note">
-      データはブラウザのローカルストレージに保存されています。
+    <p class="footer-note" id="footerStorageNote">
+      ログインするとFirestoreに保存され、同時にこの端末にもバックアップされます。
     </p>
   </main>
 
   <div class="toast" id="toast"></div>
 
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

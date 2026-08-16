@@ -279,6 +279,11 @@ textarea:focus {
   transform: scale(0.97);
 }
 
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .btn-primary {
   color: #fff;
   background: var(--primary);
@@ -328,6 +333,34 @@ textarea:focus {
   color: #1e40af;
   background: #dbeafe;
   font-size: 13px;
+}
+
+.notice-warning {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.auth-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.auth-user {
+  display: grid;
+  gap: 2px;
+}
+
+.auth-user small {
+  color: var(--muted);
+}
+
+.auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .toolbar {
