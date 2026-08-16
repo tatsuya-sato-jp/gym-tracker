@@ -100,16 +100,22 @@
   function normalizeSplitLabel(value) {
     const normalized = String(value ?? "").trim().toLowerCase();
     if (!normalized) return "";
-    if (/(^|[^a-z])push([^a-z]|$)|プッシュ/.test(normalized)) return "Push";
-    if (/(^|[^a-z])pull([^a-z]|$)|プル/.test(normalized)) return "Pull";
-    if (/(^|[^a-z])legs?([^a-z]|$)|脚|足|レッグ/.test(normalized)) return "Legs";
+    if (normalized === "push" || normalized.includes("プッシュ")) return "Push";
+    if (normalized === "pull" || normalized.includes("プル")) return "Pull";
+    if (
+      normalized === "leg" ||
+      normalized === "legs" ||
+      /脚|足|レッグ/.test(normalized)
+    ) {
+      return "Legs";
+    }
     return String(value).trim();
   }
 
   function normalizeSplits(value) {
     const values = Array.isArray(value)
       ? value
-      : String(value || "").split(/[\s,、/|｜]+/);
+      : String(value || "").split(/[\s,、/|｜-]+/);
 
     return [
       ...new Set(
@@ -519,7 +525,7 @@
 
       const [year, month, day] = item.date.split("-");
       const label = longRange ? `${year}/${month}` : `${year}/${month}/${day}`;
-      if (longRange && label === lastLabel && !isFirst && !isLast) return;
+      if (longRange && showMonthStart && label === lastLabel && !isFirst && !isLast) return;
       context.fillStyle = "#6b7280";
       context.fillText(label, x(index), height - padding.bottom + 12);
       lastLabel = label;
@@ -582,6 +588,15 @@
     data.forEach((item, index) => {
       if (item.date.endsWith("-01")) anchorIndices.add(index);
     });
+    const anchorList = [...anchorIndices].sort((a, b) => a - b);
+    if (anchorList.length >= maxPoints) {
+      return anchorList
+        .filter((_, index) =>
+          index % Math.ceil(anchorList.length / maxPoints) === 0
+        )
+        .map((index) => data[index])
+        .slice(0, maxPoints);
+    }
 
     const bucketCount = Math.max(
       1,
@@ -618,7 +633,6 @@
       return allIndices.map((index) => data[index]);
     }
 
-    const anchorList = [...anchorIndices].sort((a, b) => a - b);
     const anchorsToKeep =
       anchorList.length > maxPoints
         ? anchorList.filter((_, index) =>
