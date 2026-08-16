@@ -97,12 +97,33 @@
     return Number.isFinite(number) ? number : null;
   }
 
+  function normalizeSplitLabel(value) {
+    const normalized = String(value ?? "").trim().toLowerCase();
+    if (!normalized) return "";
+    if (normalized === "push" || normalized.includes("プッシュ")) return "Push";
+    if (normalized === "pull" || normalized.includes("プル")) return "Pull";
+    if (
+      normalized === "leg" ||
+      normalized === "legs" ||
+      /脚|足|レッグ/.test(normalized)
+    ) {
+      return "Legs";
+    }
+    return String(value).trim();
+  }
+
   function normalizeSplits(value) {
     const values = Array.isArray(value)
       ? value
-      : String(value || "").split(/[,、/]/);
+      : String(value || "").split(/[\s,、/|｜-]+/);
 
-    return [...new Set(values.map((item) => String(item).trim()).filter(Boolean))];
+    return [
+      ...new Set(
+        values
+          .map((item) => normalizeSplitLabel(item))
+          .filter(Boolean)
+      )
+    ];
   }
 
   function normalizeRecord(record) {
@@ -350,22 +371,17 @@
 
       article.innerHTML = `
         <div class="record-header">
-          <div>
+          <div class="record-summary">
             <div class="record-date">${escapeHtml(formatDate(record.date))}</div>
             <div class="record-store">📍 ${escapeHtml(record.store || "店舗未入力")}</div>
+            <span class="badge">${escapeHtml(normalizeSplits(record.split).join(" / ") || "-")}</span>
           </div>
-          <span class="badge">${escapeHtml(normalizeSplits(record.split).join(" / ") || "-")}</span>
+          <div class="record-weight">${escapeHtml(formatMetric(record.bodyWeight, "kg"))}</div>
         </div>
 
         <div class="record-details">
-          <div class="detail">
-            <div class="detail-label">体重</div>
-            <div class="detail-value">
-              ${escapeHtml(formatNumber(record.bodyWeight))}kg
-            </div>
-          </div>
           ${exercisesHtml}
-          <div class="detail">
+          <div class="detail detail-note">
             <div class="detail-label">備考</div>
             <div class="detail-value">
               ${escapeHtml(record.note || "-")}
@@ -419,7 +435,7 @@
           Number.isFinite(Number(record.bodyWeight))
       )
       .sort((a, b) => String(a.date).localeCompare(String(b.date)));
-    const data = filterChartData(allData);
+    const data = compressChartData(filterChartData(allData), width);
 
     chartSummary.textContent = chartRange.value === "all"
       ? `${data.length}件`
@@ -485,19 +501,34 @@
     context.textAlign = "center";
     context.textBaseline = "top";
 
-    const labelStep = Math.max(1, Math.ceil(data.length / 5));
+    const firstDate = data[0]?.date || "";
+    const lastDate = data[data.length - 1]?.date || "";
+    const spanDays = Math.max(
+      1,
+      Math.round((new Date(`${lastDate}T00:00:00`) - new Date(`${firstDate}T00:00:00`)) / 86400000)
+    );
+    const longRange = spanDays >= 180;
+    const labelStep = Math.max(1, Math.ceil(data.length / 6));
 
+    let lastLabel = "";
     data.forEach((item, index) => {
-      if (
-        index % labelStep !== 0 &&
-        index !== data.length - 1
-      ) {
+      const isLast = index === data.length - 1;
+      const isFirst = index === 0;
+      const showByStep = index % labelStep === 0;
+      const showMonthStart = longRange && item.date.endsWith("-01");
+      const showLongRangeFallback = longRange && data.length <= 12 && showByStep;
+      if (longRange) {
+        if (!isFirst && !isLast && !showMonthStart && !showLongRangeFallback) return;
+      } else if (!isLast && !showByStep) {
         return;
       }
 
-      const date = item.date.replaceAll("-", "/");
+      const [year, month, day] = item.date.split("-");
+      const label = longRange ? `${year}/${month}` : `${year}/${month}/${day}`;
+      if (longRange && showMonthStart && label === lastLabel && !isFirst && !isLast) return;
       context.fillStyle = "#6b7280";
-      context.fillText(date, x(index), height - padding.bottom + 12);
+      context.fillText(label, x(index), height - padding.bottom + 12);
+      lastLabel = label;
     });
 
     context.beginPath();
@@ -519,18 +550,20 @@
     context.lineCap = "round";
     context.stroke();
 
-    data.forEach((item, index) => {
-      const pointX = x(index);
-      const pointY = y(Number(item.bodyWeight));
+    if (data.length <= 80) {
+      data.forEach((item, index) => {
+        const pointX = x(index);
+        const pointY = y(Number(item.bodyWeight));
 
-      context.beginPath();
-      context.arc(pointX, pointY, 5, 0, Math.PI * 2);
-      context.fillStyle = "#ffffff";
-      context.fill();
-      context.strokeStyle = "#2563eb";
-      context.lineWidth = 3;
-      context.stroke();
-    });
+        context.beginPath();
+        context.arc(pointX, pointY, 5, 0, Math.PI * 2);
+        context.fillStyle = "#ffffff";
+        context.fill();
+        context.strokeStyle = "#2563eb";
+        context.lineWidth = 3;
+        context.stroke();
+      });
+    }
   }
 
   function filterChartData(data) {
@@ -545,6 +578,82 @@
     startDate.setMonth(startDate.getMonth() - months);
     const start = startDate.toISOString().slice(0, 10);
     return data.filter((record) => record.date >= start);
+  }
+
+  function compressChartData(data, width) {
+    const maxPoints = Math.max(40, Math.floor(width / 7));
+    if (data.length <= maxPoints) return data;
+
+    const anchorIndices = new Set([0, data.length - 1]);
+    data.forEach((item, index) => {
+      if (item.date.endsWith("-01")) anchorIndices.add(index);
+    });
+    const anchorList = [...anchorIndices].sort((a, b) => a - b);
+    if (anchorList.length >= maxPoints) {
+      return anchorList
+        .filter((_, index) =>
+          index % Math.ceil(anchorList.length / maxPoints) === 0
+        )
+        .map((index) => data[index])
+        .slice(0, maxPoints);
+    }
+
+    const bucketCount = Math.max(
+      1,
+      Math.floor((maxPoints - anchorIndices.size) / 2)
+    );
+    const bucketSize = data.length / bucketCount;
+    const candidateIndices = new Set(anchorIndices);
+
+    for (let bucket = 0; bucket < bucketCount; bucket += 1) {
+      const start = Math.floor(bucket * bucketSize);
+      const end = Math.min(
+        data.length,
+        Math.floor((bucket + 1) * bucketSize)
+      );
+      if (start >= end) continue;
+
+      let minIndex = start;
+      let maxIndex = start;
+      for (let index = start + 1; index < end; index += 1) {
+        if (Number(data[index].bodyWeight) < Number(data[minIndex].bodyWeight)) {
+          minIndex = index;
+        }
+        if (Number(data[index].bodyWeight) > Number(data[maxIndex].bodyWeight)) {
+          maxIndex = index;
+        }
+      }
+
+      candidateIndices.add(minIndex);
+      candidateIndices.add(maxIndex);
+    }
+
+    const allIndices = [...candidateIndices].sort((a, b) => a - b);
+    if (allIndices.length <= maxPoints) {
+      return allIndices.map((index) => data[index]);
+    }
+
+    const anchorsToKeep =
+      anchorList.length > maxPoints
+        ? anchorList.filter((_, index) =>
+            index % Math.ceil(anchorList.length / maxPoints) === 0
+          )
+        : anchorList;
+    anchorsToKeep.push(0, data.length - 1);
+    const protectedIndices = new Set(anchorsToKeep);
+    const remaining = allIndices.filter((index) => !protectedIndices.has(index));
+    const remainingSlots = Math.max(0, maxPoints - protectedIndices.size);
+
+    const sampledRemaining = [];
+    for (let slot = 0; slot < remainingSlots; slot += 1) {
+      const pick = remaining[Math.floor((slot * remaining.length) / remainingSlots)];
+      if (pick !== undefined) sampledRemaining.push(pick);
+    }
+
+    return [...new Set([...anchorsToKeep, ...sampledRemaining])]
+      .sort((a, b) => a - b)
+      .slice(0, maxPoints)
+      .map((index) => data[index]);
   }
 
   function csvEscape(value) {
@@ -698,12 +807,7 @@
   }
 
   function mapSplitLabel(value) {
-    const normalized = String(value ?? "").trim().toLowerCase();
-    if (!normalized) return "";
-    if (/(^push$|プッシュ)/i.test(normalized)) return "Push";
-    if (/(^pull$|プル)/i.test(normalized)) return "Pull";
-    if (/(^legs$|脚|足|レッグ)/i.test(normalized)) return "Legs";
-    return String(value).trim();
+    return normalizeSplitLabel(value);
   }
 
   function getImportSplits(data) {

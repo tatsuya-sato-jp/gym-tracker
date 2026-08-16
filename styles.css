@@ -9,6 +9,8 @@
   --danger: #dc2626;
   --danger-dark: #b91c1c;
   --success: #059669;
+  --weight-chip-text: #1f2937;
+  --weight-chip-bg: #eef2ff;
   --shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
   --radius: 16px;
 }
@@ -369,6 +371,13 @@ textarea:focus {
   margin-bottom: 9px;
 }
 
+.record-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
 .record-date {
   font-size: 16px;
   font-weight: 800;
@@ -377,7 +386,16 @@ textarea:focus {
 .record-store {
   color: var(--muted);
   font-size: 13px;
-  margin-top: 2px;
+}
+
+.record-weight {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--weight-chip-text);
+  white-space: nowrap;
+  background: var(--weight-chip-bg);
+  border-radius: 999px;
+  padding: 4px 10px;
 }
 
 .badge {
@@ -414,6 +432,10 @@ textarea:focus {
   margin-top: 2px;
   font-size: 14px;
   font-weight: 700;
+}
+
+.detail-note {
+  grid-column: 1 / -1;
 }
 
 .record-actions {
