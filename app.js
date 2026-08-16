@@ -18,6 +18,7 @@
   const splitInput = $("split");
   const otherStoreInput = $("otherStore");
   const bodyWeightInput = $("bodyWeight");
+  const noteInput = $("note");
 
   const formTitle = $("formTitle");
   const editingLabel = $("editingLabel");
@@ -107,6 +108,7 @@
     return {
       ...record,
       split: normalizeSplits(record.split),
+      note: String(record.note || "").trim(),
       exercises: Object.fromEntries(
         EXERCISES.map((exercise) => [
           exercise.key,
@@ -195,6 +197,7 @@
       store: getStoreValue(),
       split: getSelectedSplits(),
       bodyWeight: numberOrNull(bodyWeightInput.value),
+      note: noteInput.value.trim(),
       exercises,
       updatedAt: new Date().toISOString()
     };
@@ -246,6 +249,7 @@
       record.bodyWeight === null || record.bodyWeight === undefined
         ? ""
         : record.bodyWeight;
+    noteInput.value = record.note || "";
 
     EXERCISES.forEach((exercise) => {
       renderExerciseEntries(
@@ -357,6 +361,12 @@
             <div class="detail-label">体重</div>
             <div class="detail-value">
               ${escapeHtml(formatNumber(record.bodyWeight))}kg
+            </div>
+          </div>
+          <div class="detail">
+            <div class="detail-label">備考</div>
+            <div class="detail-value">
+              ${escapeHtml(record.note || "-")}
             </div>
           </div>
           ${exercisesHtml}
@@ -535,6 +545,7 @@
       "店舗",
       "部位",
       "体重(kg)",
+      "備考",
       "スクワット重量(kg)",
       "スクワット回数",
       "スクワットセット数",
@@ -562,6 +573,7 @@
           record.store,
           normalizeSplits(record.split).join(" / "),
           record.bodyWeight,
+          record.note || "",
           squat.weight,
           squat.reps,
           squat.sets,
@@ -635,9 +647,104 @@
     return rows;
   }
 
+  function normalizeHeaderName(value) {
+    return String(value ?? "").replace(/\s+/g, "").toLowerCase();
+  }
+
   function getImportValue(row, headers, names) {
-    const index = headers.findIndex((header) => names.includes(header));
+    const normalizedNames = names.map(normalizeHeaderName);
+    const index = headers.findIndex((header) =>
+      normalizedNames.includes(normalizeHeaderName(header))
+    );
     return index >= 0 ? row[index] || "" : "";
+  }
+
+  function getDataValue(data, names) {
+    const normalized = Object.entries(data || {}).reduce((result, [key, value]) => {
+      result[normalizeHeaderName(key)] = value;
+      return result;
+    }, {});
+    const found = names
+      .map((name) => normalized[normalizeHeaderName(name)])
+      .find((value) => value !== undefined && value !== null && value !== "");
+    return found ?? "";
+  }
+
+  function toBooleanCell(value) {
+    const normalized = String(value ?? "").trim().toLowerCase();
+    if (!normalized) return false;
+    if (["0", "false", "no", "off", "×", "✗", "✕", "-", "なし", "無"].includes(normalized)) {
+      return false;
+    }
+    return true;
+  }
+
+  function mapSplitLabel(value) {
+    const normalized = String(value ?? "").trim().toLowerCase();
+    if (!normalized) return "";
+    if (/(^push$|プッシュ)/i.test(normalized)) return "Push";
+    if (/(^pull$|プル)/i.test(normalized)) return "Pull";
+    if (/(^legs$|脚|足|レッグ)/i.test(normalized)) return "Legs";
+    return String(value).trim();
+  }
+
+  function getImportSplits(data) {
+    const fromText = normalizeSplits(
+      data.split || data.splits || data["部位"] || data["トレーニング部位"]
+    )
+      .map(mapSplitLabel)
+      .filter((value) => ["Push", "Pull", "Legs"].includes(value));
+    const fromChecks = [
+      { keys: ["プッシュ", "push"], value: "Push" },
+      { keys: ["プル", "pull"], value: "Pull" },
+      { keys: ["脚", "legs", "leg"], value: "Legs" }
+    ]
+      .filter(({ keys }) => toBooleanCell(getDataValue(data, keys)))
+      .map(({ value }) => value);
+    return [...new Set([...fromText, ...fromChecks])];
+  }
+
+  function parseExerciseColumn(value) {
+    const text = String(value ?? "").trim();
+    if (!text) return undefined;
+
+    const hasSeparator = /[\/／|｜\n]/.test(text);
+    const segments = hasSeparator
+      ? text.split(/[\/／|｜\n]/)
+      : [text];
+    const parsed = [];
+
+    segments
+      .map((segment) => segment.trim())
+      .filter(Boolean)
+      .forEach((segment) => {
+        const numbers = (segment.match(/-?\d+(?:\.\d+)?/g) || [])
+          .map(Number)
+          .filter(Number.isFinite);
+        if (!numbers.length) return;
+
+        if (!hasSeparator && numbers.length > 3) {
+          for (let index = 0; index < numbers.length; index += 3) {
+            if (numbers[index + 2] === undefined) break;
+            const entry = normalizeSetEntry({
+              weight: numbers[index],
+              reps: numbers[index + 1],
+              sets: numbers[index + 2]
+            });
+            if (hasSetValue(entry)) parsed.push(entry);
+          }
+          return;
+        }
+
+        const entry = normalizeSetEntry({
+          weight: numbers[0],
+          reps: numbers[1],
+          sets: numbers[2]
+        });
+        if (hasSetValue(entry)) parsed.push(entry);
+      });
+
+    return parsed.length ? parsed : undefined;
   }
 
   function normalizeImportDate(value) {
@@ -663,6 +770,8 @@
       const source = exercises[key] || {};
       const details = source.entries ?? parseExerciseEntries(
         data[`${key}Entries`] ?? data[`${label}セット詳細(JSON)`]
+      ) ?? parseExerciseColumn(
+        data[`${key}Text`] ?? data[key] ?? data[label]
       );
       return normalizeExercise({
         weight: source.weight ?? data[`${key}Weight`] ?? data[`${label}重量(kg)`],
@@ -673,10 +782,13 @@
     };
     const record = normalizeRecord({
       id: createId(),
-      date: normalizeImportDate(data.date || data["日付"]),
-      store: String(data.store || data["店舗"] || "").trim(),
-      split: data.split || data.splits || data["部位"],
-      bodyWeight: numberOrNull(data.bodyWeight ?? data["体重(kg)"] ?? data["体重"]),
+      date: normalizeImportDate(getDataValue(data, ["日付", "date", "inputDate", "inputDate (y/M/d)"])),
+      note: String(getDataValue(data, ["備考", "note"])).trim(),
+      store: String(getDataValue(data, ["店舗", "store"])).trim(),
+      split: getImportSplits(data),
+      bodyWeight: numberOrNull(
+        getDataValue(data, ["体重(kg)", "体重", "bodyWeight", "weight (kg)"])
+      ),
       exercises: {
         squat: {
           ...importExercise("squat", "スクワット")
@@ -719,13 +831,17 @@
   }
 
   function hasImportHeader(text) {
+    const normalizedDateHeaders = ["日付", "date", "inputDate", "inputDate (y/M/d)"]
+      .map(normalizeHeaderName);
     const normalizedText = text.replace(/^\uFEFF/, "");
     const rows = parseDelimited(
       normalizedText,
       normalizedText.includes("\t") ? "\t" : ","
     );
     return rows.some((row) =>
-      row.some((value) => ["日付", "date"].includes(value))
+      row.some((value) =>
+        normalizedDateHeaders.includes(normalizeHeaderName(value))
+      )
     );
   }
 
@@ -746,18 +862,30 @@
   }
 
   function rowsToRecords(rows) {
+    const normalizedDateHeaders = ["日付", "date", "inputDate", "inputDate (y/M/d)"]
+      .map(normalizeHeaderName);
     const headerIndex = rows.findIndex(
-      (row) => row.includes("日付") || row.includes("date")
+      (row) =>
+        row.some((value) =>
+          normalizedDateHeaders.includes(normalizeHeaderName(value))
+        )
     );
     if (headerIndex < 0) throw new Error("日付の見出しが見つかりません");
 
     const headers = rows[headerIndex].map((header) => header.replace(/^\uFEFF/, ""));
     return rows.slice(headerIndex + 1).map((row) => {
       const data = {
-        date: getImportValue(row, headers, ["日付", "date"]),
+        date: getImportValue(row, headers, ["日付", "date", "inputDate", "inputDate (y/M/d)"]),
+        note: getImportValue(row, headers, ["備考", "note"]),
         store: getImportValue(row, headers, ["店舗", "store"]),
-        split: getImportValue(row, headers, ["部位", "split", "splits"]),
-        bodyWeight: getImportValue(row, headers, ["体重(kg)", "体重", "bodyWeight"]),
+        split: getImportValue(row, headers, ["部位", "トレーニング部位", "split", "splits"]),
+        bodyWeight: getImportValue(row, headers, ["体重(kg)", "体重", "bodyWeight", "weight (kg)", "weight"]),
+        push: getImportValue(row, headers, ["プッシュ", "push"]),
+        pull: getImportValue(row, headers, ["プル", "pull"]),
+        legs: getImportValue(row, headers, ["脚", "legs", "leg"]),
+        squatText: getImportValue(row, headers, ["スクワット", "squat"]),
+        benchText: getImportValue(row, headers, ["ベンチプレス", "bench"]),
+        deadliftText: getImportValue(row, headers, ["デッドリフト", "deadlift"]),
         squatWeight: getImportValue(row, headers, ["スクワット重量(kg)", "squatWeight"]),
         squatReps: getImportValue(row, headers, ["スクワット回数", "squatReps"]),
         squatSets: getImportValue(row, headers, ["スクワットセット数", "squatSets"]),
