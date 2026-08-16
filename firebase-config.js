@@ -1,8 +1,8 @@
 window.FIREBASE_CONFIG = {
-  apiKey: "YOUR_FIREBASE_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyAuYzUMDu9XFi78CITfcW-n4qMtL4tcc",
+  authDomain: "gym-tracker-8fc64.firebaseapp.com",
+  projectId: "gym-tracker-8fc64",
+  storageBucket: "gym-tracker-8fc64.firebasestorage.app",
+  messagingSenderId: "418572681128",
+  appId: "1:418572681128:web:1328ece2ed52980db0a79d"
 };
