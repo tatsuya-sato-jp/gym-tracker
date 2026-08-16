@@ -65,7 +65,8 @@
               <option value="">選択してください</option>
               <option value="原宿">原宿</option>
               <option value="表参道">表参道</option>
-              <option value="銀座東京浜松町">銀座東京浜松町</option>
+              <option value="銀座東京">銀座東京</option>
+              <option value="浜松町">浜松町</option>
               <option value="渋谷">渋谷</option>
               <option value="原宿アネックス">原宿アネックス</option>
               <option value="その他">その他</option>
@@ -119,11 +120,6 @@
           </h3>
 
           <div class="exercise-grid">
-            <div class="exercise-card" data-exercise="squat">
-              <h3>スクワット</h3>
-              <div class="set-entry-list"></div>
-              <button type="button" class="btn btn-secondary btn-small add-set-button">重量を追加</button>
-            </div>
             <div class="exercise-card" data-exercise="bench">
               <h3>ベンチプレス</h3>
               <div class="set-entry-list"></div>
@@ -131,6 +127,11 @@
             </div>
             <div class="exercise-card" data-exercise="deadlift">
               <h3>デッドリフト</h3>
+              <div class="set-entry-list"></div>
+              <button type="button" class="btn btn-secondary btn-small add-set-button">重量を追加</button>
+            </div>
+            <div class="exercise-card" data-exercise="squat">
+              <h3>スクワット</h3>
               <div class="set-entry-list"></div>
               <button type="button" class="btn btn-secondary btn-small add-set-button">重量を追加</button>
             </div>
@@ -160,6 +161,16 @@
         <span>体重推移</span>
         <small id="chartSummary">0件</small>
       </h2>
+
+      <div class="chart-controls">
+        <label for="chartRange">表示範囲</label>
+        <select id="chartRange">
+          <option value="1m">1ヶ月</option>
+          <option value="3m">3ヶ月</option>
+          <option value="1y">1年</option>
+          <option value="all" selected>全部</option>
+        </select>
+      </div>
 
       <div class="chart-wrap">
         <canvas id="weightChart"></canvas>
