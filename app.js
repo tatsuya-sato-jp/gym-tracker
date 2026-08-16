@@ -506,9 +506,14 @@
 
     data.forEach((item, index) => {
       const isLast = index === data.length - 1;
+      const isFirst = index === 0;
       const showByStep = index % labelStep === 0;
-      const showMonthStart = longRange && /-\d{2}$/.test(item.date) && item.date.endsWith("-01");
-      if (!isLast && !showByStep && !showMonthStart) return;
+      const showMonthStart = longRange && item.date.endsWith("-01");
+      if (longRange) {
+        if (!isFirst && !isLast && !showMonthStart) return;
+      } else if (!isLast && !showByStep) {
+        return;
+      }
 
       const [year, month, day] = item.date.split("-");
       const label = longRange ? `${year}/${month}` : `${year}/${month}/${day}`;
@@ -569,12 +574,68 @@
     const maxPoints = Math.max(40, Math.floor(width / 7));
     if (data.length <= maxPoints) return data;
 
-    const sampled = [];
-    const step = (data.length - 1) / (maxPoints - 1);
-    for (let index = 0; index < maxPoints; index += 1) {
-      sampled.push(data[Math.round(index * step)]);
+    const anchorIndices = new Set([0, data.length - 1]);
+    data.forEach((item, index) => {
+      if (item.date.endsWith("-01")) anchorIndices.add(index);
+    });
+
+    const bucketCount = Math.max(
+      1,
+      Math.floor((maxPoints - anchorIndices.size) / 2)
+    );
+    const bucketSize = data.length / bucketCount;
+    const candidateIndices = new Set(anchorIndices);
+
+    for (let bucket = 0; bucket < bucketCount; bucket += 1) {
+      const start = Math.floor(bucket * bucketSize);
+      const end = Math.min(
+        data.length,
+        Math.floor((bucket + 1) * bucketSize)
+      );
+      if (start >= end) continue;
+
+      let minIndex = start;
+      let maxIndex = start;
+      for (let index = start + 1; index < end; index += 1) {
+        if (Number(data[index].bodyWeight) < Number(data[minIndex].bodyWeight)) {
+          minIndex = index;
+        }
+        if (Number(data[index].bodyWeight) > Number(data[maxIndex].bodyWeight)) {
+          maxIndex = index;
+        }
+      }
+
+      candidateIndices.add(minIndex);
+      candidateIndices.add(maxIndex);
     }
-    return sampled;
+
+    const allIndices = [...candidateIndices].sort((a, b) => a - b);
+    if (allIndices.length <= maxPoints) {
+      return allIndices.map((index) => data[index]);
+    }
+
+    const anchorList = [...anchorIndices].sort((a, b) => a - b);
+    const anchorsToKeep =
+      anchorList.length > maxPoints
+        ? anchorList.filter((_, index) =>
+            index % Math.ceil(anchorList.length / maxPoints) === 0
+          )
+        : anchorList;
+    anchorsToKeep.push(0, data.length - 1);
+    const protectedIndices = new Set(anchorsToKeep);
+    const remaining = allIndices.filter((index) => !protectedIndices.has(index));
+    const remainingSlots = Math.max(0, maxPoints - protectedIndices.size);
+
+    const sampledRemaining = [];
+    for (let slot = 0; slot < remainingSlots; slot += 1) {
+      const pick = remaining[Math.floor((slot * remaining.length) / remainingSlots)];
+      if (pick !== undefined) sampledRemaining.push(pick);
+    }
+
+    return [...new Set([...anchorsToKeep, ...sampledRemaining])]
+      .sort((a, b) => a - b)
+      .slice(0, maxPoints)
+      .map((index) => data[index]);
   }
 
   function csvEscape(value) {
