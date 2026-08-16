@@ -725,6 +725,7 @@
 
         if (!hasSeparator && numbers.length > 3) {
           for (let index = 0; index < numbers.length; index += 3) {
+            if (numbers[index + 2] === undefined) break;
             const entry = normalizeSetEntry({
               weight: numbers[index],
               reps: numbers[index + 1],
@@ -770,7 +771,7 @@
       const details = source.entries ?? parseExerciseEntries(
         data[`${key}Entries`] ?? data[`${label}セット詳細(JSON)`]
       ) ?? parseExerciseColumn(
-        data[key] ?? data[label]
+        data[`${key}Text`] ?? data[key] ?? data[label]
       );
       return normalizeExercise({
         weight: source.weight ?? data[`${key}Weight`] ?? data[`${label}重量(kg)`],
@@ -786,7 +787,7 @@
       store: String(getDataValue(data, ["店舗", "store"])).trim(),
       split: getImportSplits(data),
       bodyWeight: numberOrNull(
-        getDataValue(data, ["体重(kg)", "体重", "bodyWeight", "weight (kg)", "weight"])
+        getDataValue(data, ["体重(kg)", "体重", "bodyWeight", "weight (kg)"])
       ),
       exercises: {
         squat: {
@@ -830,6 +831,8 @@
   }
 
   function hasImportHeader(text) {
+    const normalizedDateHeaders = ["日付", "date", "inputDate", "inputDate (y/M/d)"]
+      .map(normalizeHeaderName);
     const normalizedText = text.replace(/^\uFEFF/, "");
     const rows = parseDelimited(
       normalizedText,
@@ -837,9 +840,7 @@
     );
     return rows.some((row) =>
       row.some((value) =>
-        ["日付", "date", "inputDate", "inputDate (y/M/d)"]
-          .map(normalizeHeaderName)
-          .includes(normalizeHeaderName(value))
+        normalizedDateHeaders.includes(normalizeHeaderName(value))
       )
     );
   }
@@ -861,12 +862,12 @@
   }
 
   function rowsToRecords(rows) {
+    const normalizedDateHeaders = ["日付", "date", "inputDate", "inputDate (y/M/d)"]
+      .map(normalizeHeaderName);
     const headerIndex = rows.findIndex(
       (row) =>
         row.some((value) =>
-          ["日付", "date", "inputDate", "inputDate (y/M/d)"]
-            .map(normalizeHeaderName)
-            .includes(normalizeHeaderName(value))
+          normalizedDateHeaders.includes(normalizeHeaderName(value))
         )
     );
     if (headerIndex < 0) throw new Error("日付の見出しが見つかりません");
@@ -882,9 +883,9 @@
         push: getImportValue(row, headers, ["プッシュ", "push"]),
         pull: getImportValue(row, headers, ["プル", "pull"]),
         legs: getImportValue(row, headers, ["脚", "legs", "leg"]),
-        squat: getImportValue(row, headers, ["スクワット", "squat"]),
-        bench: getImportValue(row, headers, ["ベンチプレス", "bench"]),
-        deadlift: getImportValue(row, headers, ["デッドリフト", "deadlift"]),
+        squatText: getImportValue(row, headers, ["スクワット", "squat"]),
+        benchText: getImportValue(row, headers, ["ベンチプレス", "bench"]),
+        deadliftText: getImportValue(row, headers, ["デッドリフト", "deadlift"]),
         squatWeight: getImportValue(row, headers, ["スクワット重量(kg)", "squatWeight"]),
         squatReps: getImportValue(row, headers, ["スクワット回数", "squatReps"]),
         squatSets: getImportValue(row, headers, ["スクワットセット数", "squatSets"]),
