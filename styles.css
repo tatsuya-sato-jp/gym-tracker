@@ -440,6 +440,23 @@ textarea:focus {
   height: 280px;
 }
 
+.chart-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: -8px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.chart-controls select {
+  width: auto;
+  min-height: 36px;
+  padding: 5px 30px 5px 9px;
+}
+
 #weightChart {
   display: block;
   width: 100%;

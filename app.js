@@ -4,9 +4,9 @@
   const STORAGE_KEY = "workout-tracker-records-v1";
 
   const EXERCISES = [
-    { key: "squat", label: "スクワット" },
     { key: "bench", label: "ベンチプレス" },
-    { key: "deadlift", label: "デッドリフト" }
+    { key: "deadlift", label: "デッドリフト" },
+    { key: "squat", label: "スクワット" }
   ];
 
   const $ = (id) => document.getElementById(id);
@@ -36,6 +36,7 @@
   const chart = $("weightChart");
   const chartEmpty = $("chartEmpty");
   const chartSummary = $("chartSummary");
+  const chartRange = $("chartRange");
 
   const toast = $("toast");
 
@@ -363,13 +364,13 @@
               ${escapeHtml(formatNumber(record.bodyWeight))}kg
             </div>
           </div>
+          ${exercisesHtml}
           <div class="detail">
             <div class="detail-label">備考</div>
             <div class="detail-value">
               ${escapeHtml(record.note || "-")}
             </div>
           </div>
-          ${exercisesHtml}
         </div>
 
         <div class="record-actions">
@@ -409,7 +410,7 @@
 
     context.clearRect(0, 0, width, height);
 
-    const data = records
+    const allData = records
       .filter(
         (record) =>
           record.date &&
@@ -418,8 +419,11 @@
           Number.isFinite(Number(record.bodyWeight))
       )
       .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const data = filterChartData(allData);
 
-    chartSummary.textContent = `${data.length}件`;
+    chartSummary.textContent = chartRange.value === "all"
+      ? `${data.length}件`
+      : `${data.length}/${allData.length}件`;
 
     if (data.length === 0) {
       chart.classList.add("hidden");
@@ -433,7 +437,7 @@
     const padding = {
       top: 20,
       right: 18,
-      bottom: 42,
+      bottom: 52,
       left: 46
     };
 
@@ -491,7 +495,7 @@
         return;
       }
 
-      const date = item.date.slice(5).replace("-", "/");
+      const date = item.date.replaceAll("-", "/");
       context.fillStyle = "#6b7280";
       context.fillText(date, x(index), height - padding.bottom + 12);
     });
@@ -527,6 +531,20 @@
       context.lineWidth = 3;
       context.stroke();
     });
+  }
+
+  function filterChartData(data) {
+    if (chartRange.value === "all") return data;
+
+    const latestDate = data[data.length - 1]?.date;
+    if (!latestDate) return data;
+
+    const startDate = new Date(`${latestDate}T00:00:00`);
+    const months = { "1m": 1, "3m": 3, "1y": 12 }[chartRange.value];
+    if (!months) return data;
+    startDate.setMonth(startDate.getMonth() - months);
+    const start = startDate.toISOString().slice(0, 10);
+    return data.filter((record) => record.date >= start);
   }
 
   function csvEscape(value) {
@@ -764,15 +782,75 @@
     return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
   }
 
+  function parseLegacyNote(note) {
+    const lines = String(note || "")
+      .split(/\r?\n|\\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const storeNames = ["原宿アネックス", "銀座東京", "浜松町", "表参道", "原宿", "渋谷"];
+    const store = storeNames.find((name) =>
+      lines.some((line) => line.includes(name))
+    ) || "";
+    const header = lines[0] || "";
+    const splits = header.includes("全身")
+      ? ["Push", "Pull", "Legs"]
+      : [
+          /(プッシュ|push)/i.test(header) && "Push",
+          /(プル|pull)/i.test(header) && "Pull",
+          /(脚|足|レッグ|legs|leg)/i.test(header) && "Legs"
+        ].filter(Boolean);
+    const entriesByExercise = Object.fromEntries(
+      EXERCISES.map(({ key }) => [key, []])
+    );
+    const unlabeledEntries = [];
+    let activeExercise = "";
+
+    lines.forEach((line) => {
+      const exercise = EXERCISES.find(({ label }) => line.includes(label));
+      if (exercise) {
+        activeExercise = exercise.key;
+        const values = line.replace(exercise.label, "").trim();
+        if (/\d/.test(values)) entriesByExercise[activeExercise].push(values);
+        return;
+      }
+
+      if (!/\d/.test(line)) return;
+      if (activeExercise) {
+        entriesByExercise[activeExercise].push(line);
+      } else {
+        unlabeledEntries.push(line);
+      }
+    });
+
+    if (unlabeledEntries.length && splits.length === 1) {
+      const exerciseBySplit = { Push: "bench", Pull: "deadlift", Legs: "squat" };
+      entriesByExercise[exerciseBySplit[splits[0]]].push(...unlabeledEntries);
+    }
+
+    return {
+      store,
+      splits,
+      exercises: Object.fromEntries(
+        EXERCISES.map(({ key }) => [
+          key,
+          parseExerciseColumn(entriesByExercise[key].join("\n"))
+        ])
+      )
+    };
+  }
+
   function createImportedRecord(data) {
     const exercises = data.exercises || {};
+    const note = String(getDataValue(data, ["備考", "note"])).trim();
+    const legacyNote = parseLegacyNote(note);
+    const splits = getImportSplits(data);
     const importExercise = (key, label) => {
       const source = exercises[key] || {};
       const details = source.entries ?? parseExerciseEntries(
         data[`${key}Entries`] ?? data[`${label}セット詳細(JSON)`]
       ) ?? parseExerciseColumn(
         data[`${key}Text`] ?? data[key] ?? data[label]
-      );
+      ) ?? legacyNote.exercises[key];
       return normalizeExercise({
         weight: source.weight ?? data[`${key}Weight`] ?? data[`${label}重量(kg)`],
         reps: source.reps ?? data[`${key}Reps`] ?? data[`${label}回数`],
@@ -783,9 +861,9 @@
     const record = normalizeRecord({
       id: createId(),
       date: normalizeImportDate(getDataValue(data, ["日付", "date", "inputDate", "inputDate (y/M/d)"])),
-      note: String(getDataValue(data, ["備考", "note"])).trim(),
-      store: String(getDataValue(data, ["店舗", "store"])).trim(),
-      split: getImportSplits(data),
+      note,
+      store: String(getDataValue(data, ["店舗", "store"])).trim() || legacyNote.store,
+      split: splits.length ? splits : legacyNote.splits,
       bodyWeight: numberOrNull(
         getDataValue(data, ["体重(kg)", "体重", "bodyWeight", "weight (kg)"])
       ),
@@ -1178,6 +1256,7 @@
   });
 
   filterSplit.addEventListener("change", renderRecords);
+  chartRange.addEventListener("change", drawChart);
   storeInput.addEventListener("change", updateOtherStoreVisibility);
 
   $("exportButton").addEventListener("click", exportCsv);
