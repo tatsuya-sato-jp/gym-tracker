@@ -1254,6 +1254,7 @@
   });
 
   filterSplit.addEventListener("change", renderRecords);
+  chartRange.addEventListener("change", drawChart);
   storeInput.addEventListener("change", updateOtherStoreVisibility);
 
   $("exportButton").addEventListener("click", exportCsv);
