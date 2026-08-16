@@ -9,6 +9,8 @@
   --danger: #dc2626;
   --danger-dark: #b91c1c;
   --success: #059669;
+  --weight-chip-text: #1f2937;
+  --weight-chip-bg: #eef2ff;
   --shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
   --radius: 16px;
 }
@@ -389,9 +391,9 @@ textarea:focus {
 .record-weight {
   font-size: 13px;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--weight-chip-text);
   white-space: nowrap;
-  background: #eef2ff;
+  background: var(--weight-chip-bg);
   border-radius: 999px;
   padding: 4px 10px;
 }

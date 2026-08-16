@@ -100,9 +100,9 @@
   function normalizeSplitLabel(value) {
     const normalized = String(value ?? "").trim().toLowerCase();
     if (!normalized) return "";
-    if (/^(push|プッシュ)$/.test(normalized)) return "Push";
-    if (/^(pull|プル)$/.test(normalized)) return "Pull";
-    if (/^(legs?|脚|足|レッグ)$/.test(normalized)) return "Legs";
+    if (/(^|[^a-z])push([^a-z]|$)|プッシュ/.test(normalized)) return "Push";
+    if (/(^|[^a-z])pull([^a-z]|$)|プル/.test(normalized)) return "Pull";
+    if (/(^|[^a-z])legs?([^a-z]|$)|脚|足|レッグ/.test(normalized)) return "Legs";
     return String(value).trim();
   }
 
@@ -370,7 +370,7 @@
             <div class="record-store">📍 ${escapeHtml(record.store || "店舗未入力")}</div>
             <span class="badge">${escapeHtml(normalizeSplits(record.split).join(" / ") || "-")}</span>
           </div>
-          <div class="record-weight">${escapeHtml(formatNumber(record.bodyWeight))}kg</div>
+          <div class="record-weight">${escapeHtml(formatMetric(record.bodyWeight, "kg"))}</div>
         </div>
 
         <div class="record-details">
@@ -504,21 +504,25 @@
     const longRange = spanDays >= 180;
     const labelStep = Math.max(1, Math.ceil(data.length / 6));
 
+    let lastLabel = "";
     data.forEach((item, index) => {
       const isLast = index === data.length - 1;
       const isFirst = index === 0;
       const showByStep = index % labelStep === 0;
       const showMonthStart = longRange && item.date.endsWith("-01");
+      const showLongRangeFallback = longRange && data.length <= 12 && showByStep;
       if (longRange) {
-        if (!isFirst && !isLast && !showMonthStart) return;
+        if (!isFirst && !isLast && !showMonthStart && !showLongRangeFallback) return;
       } else if (!isLast && !showByStep) {
         return;
       }
 
       const [year, month, day] = item.date.split("-");
       const label = longRange ? `${year}/${month}` : `${year}/${month}/${day}`;
+      if (longRange && label === lastLabel && !isFirst && !isLast) return;
       context.fillStyle = "#6b7280";
       context.fillText(label, x(index), height - padding.bottom + 12);
+      lastLabel = label;
     });
 
     context.beginPath();
