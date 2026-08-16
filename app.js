@@ -2,6 +2,13 @@
   "use strict";
 
   const STORAGE_KEY = "workout-tracker-records-v1";
+  const MIGRATION_FLAG_PREFIX = "workout-tracker-firestore-migrated-v1-";
+  const FIREBASE_REQUIRED_KEYS = [
+    "apiKey",
+    "authDomain",
+    "projectId",
+    "appId"
+  ];
 
   const EXERCISES = [
     { key: "bench", label: "ベンチプレス" },
@@ -39,13 +46,38 @@
   const chartRange = $("chartRange");
 
   const toast = $("toast");
+  const authStatus = $("authStatus");
+  const userEmail = $("userEmail");
+  const loginButton = $("loginButton");
+  const logoutButton = $("logoutButton");
+  const syncStatus = $("syncStatus");
+  const migrateButton = $("migrateButton");
+  const migrateHint = $("migrateHint");
+  const firebaseSetupNotice = $("firebaseSetupNotice");
+  const storageNotice = $("storageNotice");
+  const footerStorageNote = $("footerStorageNote");
 
-  let records = loadRecords();
+  let currentUser = null;
+  let firebaseApp = null;
+  let auth = null;
+  let firestore = null;
+  let cloudEnabled = false;
+  let cloudReady = false;
+  let syncing = false;
+  let records = loadRecords(null);
   let toastTimer = null;
 
-  function loadRecords() {
+  function getLegacyLocalRecords() {
+    return loadRecords(null).map((record) => normalizeRecord(record));
+  }
+
+  function getStorageKey(uid = currentUser?.uid) {
+    return uid ? `${STORAGE_KEY}-${uid}` : STORAGE_KEY;
+  }
+
+  function loadRecords(uid = currentUser?.uid) {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(getStorageKey(uid));
       const parsed = saved ? JSON.parse(saved) : [];
       return Array.isArray(parsed)
         ? parsed.map(normalizeRecord)
@@ -56,8 +88,218 @@
     }
   }
 
-  function saveRecords() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  function saveRecords(uid = currentUser?.uid) {
+    localStorage.setItem(getStorageKey(uid), JSON.stringify(records));
+  }
+
+  function isFirebaseConfigured(config) {
+    if (!config || typeof config !== "object") return false;
+    return FIREBASE_REQUIRED_KEYS.every((key) => {
+      const value = String(config[key] || "").trim();
+      return value && !value.includes("YOUR_");
+    });
+  }
+
+  function canUseCloud() {
+    return cloudEnabled && cloudReady && Boolean(currentUser?.uid);
+  }
+
+  function migrationFlagKey(uid) {
+    return `${MIGRATION_FLAG_PREFIX}${uid}`;
+  }
+
+  function isMigrated(uid) {
+    if (!uid) return false;
+    return localStorage.getItem(migrationFlagKey(uid)) === "1";
+  }
+
+  function markMigrated(uid) {
+    if (!uid) return;
+    localStorage.setItem(migrationFlagKey(uid), "1");
+  }
+
+  function setSyncing(value) {
+    syncing = value;
+    updateSyncStatus();
+  }
+
+  function updateSyncStatus(message) {
+    if (message) {
+      syncStatus.textContent = message;
+      return;
+    }
+    if (!cloudEnabled) {
+      syncStatus.textContent = "ローカルモード";
+      return;
+    }
+    if (syncing) {
+      syncStatus.textContent = "同期中…";
+      return;
+    }
+    if (!currentUser) {
+      syncStatus.textContent = "ログイン待ち";
+      return;
+    }
+    syncStatus.textContent = canUseCloud()
+      ? "Firestore同期中"
+      : "クラウド利用不可（ローカル保存中）";
+  }
+
+  function updateAuthUi() {
+    const loggedIn = Boolean(currentUser);
+    const localRecordsForMigration = getLegacyLocalRecords();
+    authStatus.textContent = !cloudEnabled
+      ? "Firebase設定が必要です"
+      : loggedIn
+        ? "Googleログイン済み"
+        : "Googleログインが必要です";
+    userEmail.textContent = loggedIn
+      ? currentUser.email || "メールアドレス不明"
+      : cloudEnabled
+        ? "未ログイン"
+        : "未設定";
+    loginButton.classList.toggle("hidden", loggedIn || !cloudEnabled);
+    logoutButton.classList.toggle("hidden", !loggedIn || !cloudEnabled);
+    migrateButton.classList.toggle(
+      "hidden",
+      !cloudEnabled ||
+      !loggedIn ||
+      localRecordsForMigration.length === 0 ||
+      isMigrated(currentUser?.uid)
+    );
+    migrateHint.classList.toggle("hidden", migrateButton.classList.contains("hidden"));
+    storageNotice.textContent = canUseCloud()
+      ? "記録はFirestoreに保存され、この端末にもバックアップされます。"
+      : "記録はこの端末のブラウザ内に保存されます（クラウド同期を有効化するとFirestoreにも保存されます）。";
+    footerStorageNote.textContent = canUseCloud()
+      ? "ログイン中はFirestoreとこの端末の両方に保存します。"
+      : "現在はローカル保存モードです。Firebase設定とログインで端末間同期できます。";
+    updateSyncStatus();
+  }
+
+  async function fetchCloudRecords(uid) {
+    const snapshot = await firestore
+      .collection("users")
+      .doc(uid)
+      .collection("workouts")
+      .get();
+    return snapshot.docs
+      .map((doc) => normalizeRecord({ id: doc.id, ...doc.data() }))
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }
+
+  async function upsertCloudRecord(uid, record) {
+    await firestore
+      .collection("users")
+      .doc(uid)
+      .collection("workouts")
+      .doc(record.id)
+      .set(record, { merge: true });
+  }
+
+  async function deleteCloudRecord(uid, id) {
+    await firestore
+      .collection("users")
+      .doc(uid)
+      .collection("workouts")
+      .doc(id)
+      .delete();
+  }
+
+  async function clearCloudRecords(uid, targetRecords) {
+    if (!targetRecords.length) return;
+    const batch = firestore.batch();
+    targetRecords.forEach((record) => {
+      const ref = firestore
+        .collection("users")
+        .doc(uid)
+        .collection("workouts")
+        .doc(record.id);
+      batch.delete(ref);
+    });
+    await batch.commit();
+  }
+
+  async function importCloudRecords(uid, importedRecords) {
+    if (!importedRecords.length) return;
+    let batch = firestore.batch();
+    let count = 0;
+    for (const record of importedRecords) {
+      const ref = firestore
+        .collection("users")
+        .doc(uid)
+        .collection("workouts")
+        .doc(record.id);
+      batch.set(ref, record, { merge: true });
+      count += 1;
+      if (count % 400 === 0) {
+        await batch.commit();
+        batch = firestore.batch();
+      }
+    }
+    await batch.commit();
+  }
+
+  async function reloadRecordsFromCloud() {
+    if (!canUseCloud()) return false;
+    try {
+      setSyncing(true);
+      const cloudRecords = await fetchCloudRecords(currentUser.uid);
+      records = cloudRecords;
+      saveRecords();
+      renderRecords();
+      drawChart();
+      cloudReady = true;
+      return true;
+    } catch (error) {
+      console.error("Firestoreの読み込みに失敗しました", error);
+      cloudReady = false;
+      showToast("クラウドの読み込みに失敗しました。ローカル記録を表示します。");
+      return false;
+    } finally {
+      setSyncing(false);
+      updateAuthUi();
+    }
+  }
+
+  async function initFirebase() {
+    const config = window.FIREBASE_CONFIG;
+    if (!window.firebase || !isFirebaseConfigured(config)) {
+      cloudEnabled = false;
+      firebaseSetupNotice.classList.remove("hidden");
+      updateAuthUi();
+      return;
+    }
+
+    try {
+      firebaseApp = firebase.apps.length
+        ? firebase.app()
+        : firebase.initializeApp(config);
+      auth = firebaseApp.auth();
+      firestore = firebaseApp.firestore();
+      cloudEnabled = true;
+      cloudReady = true;
+      firebaseSetupNotice.classList.add("hidden");
+
+      auth.onAuthStateChanged(async (user) => {
+        currentUser = user || null;
+        updateAuthUi();
+        if (currentUser) {
+          await reloadRecordsFromCloud();
+        } else {
+          records = loadRecords();
+          renderRecords();
+          drawChart();
+        }
+      });
+    } catch (error) {
+      console.error("Firebaseの初期化に失敗しました", error);
+      cloudEnabled = false;
+      cloudReady = false;
+      firebaseSetupNotice.classList.remove("hidden");
+      updateAuthUi();
+      showToast("Firebaseの初期化に失敗しました。ローカルモードで利用できます。");
+    }
   }
 
   function createId() {
@@ -1241,8 +1483,23 @@
         showToast("取り込める記録が見つかりませんでした");
         return;
       }
+      if (canUseCloud()) {
+        setSyncing(true);
+        try {
+          await importCloudRecords(currentUser.uid, imported);
+        } catch (error) {
+          console.error("Firestoreへの取り込みに失敗しました", error);
+          showToast("クラウドへの保存に失敗したため、この端末に保存しました。");
+        } finally {
+          setSyncing(false);
+        }
+      }
 
-      records.push(...imported);
+      const nextMap = new Map(records.map((record) => [record.id, record]));
+      imported.forEach((record) => {
+        nextMap.set(record.id, record);
+      });
+      records = [...nextMap.values()];
       saveRecords();
       renderRecords();
       drawChart();
@@ -1263,7 +1520,72 @@
     }, 2400);
   }
 
-  form.addEventListener("submit", (event) => {
+  async function signInWithGoogle() {
+    if (!cloudEnabled || !auth) {
+      showToast("Firebase設定後にGoogleログインできます");
+      return;
+    }
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      await auth.signInWithPopup(provider);
+    } catch (error) {
+      console.error("Googleログインに失敗しました", error);
+      showToast("Googleログインに失敗しました。ポップアップ許可を確認してください。");
+    }
+  }
+
+  async function signOutGoogle() {
+    if (!auth) return;
+    try {
+      await auth.signOut();
+      showToast("ログアウトしました");
+    } catch (error) {
+      console.error("ログアウトに失敗しました", error);
+      showToast("ログアウトに失敗しました");
+    }
+  }
+
+  async function migrateLocalRecordsToCloud() {
+    const localRecordsForMigration = getLegacyLocalRecords();
+    if (!cloudEnabled || !canUseCloud()) {
+      showToast("ログイン後に移行できます");
+      return;
+    }
+    if (!localRecordsForMigration.length) {
+      showToast("移行対象のローカル記録がありません");
+      return;
+    }
+    if (isMigrated(currentUser.uid)) {
+      showToast("このアカウントでは移行済みです");
+      return;
+    }
+
+    const backupConfirmed = window.confirm(
+      "移行前に必ずCSV出力でバックアップしてください。続行しますか？"
+    );
+    if (!backupConfirmed) return;
+
+    const executeConfirmed = window.confirm(
+      `この端末の${localRecordsForMigration.length}件をFirestoreへ移行します。原則1回のみの操作です。続行しますか？`
+    );
+    if (!executeConfirmed) return;
+
+    try {
+      setSyncing(true);
+      await importCloudRecords(currentUser.uid, localRecordsForMigration);
+      markMigrated(currentUser.uid);
+      await reloadRecordsFromCloud();
+      showToast("localStorageの既存記録をFirestoreへ移行しました");
+    } catch (error) {
+      console.error("移行に失敗しました", error);
+      showToast("移行に失敗しました。通信状態を確認して再試行してください。");
+    } finally {
+      setSyncing(false);
+      updateAuthUi();
+    }
+  }
+
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
     const record = getFormRecord();
@@ -1285,6 +1607,18 @@
       (item) => item.id === record.id
     );
 
+    if (canUseCloud()) {
+      setSyncing(true);
+      try {
+        await upsertCloudRecord(currentUser.uid, record);
+      } catch (error) {
+        console.error("Firestoreへの保存に失敗しました", error);
+        showToast("クラウド保存に失敗したため、この端末に保存しました。");
+      } finally {
+        setSyncing(false);
+      }
+    }
+
     if (existingIndex >= 0) {
       records[existingIndex] = record;
       showToast("記録を更新しました");
@@ -1292,7 +1626,6 @@
       records.push(record);
       showToast("記録を追加しました");
     }
-
     saveRecords();
     renderRecords();
     drawChart();
@@ -1325,7 +1658,7 @@
     }
   });
 
-  recordList.addEventListener("click", (event) => {
+  recordList.addEventListener("click", async (event) => {
     const editButton = event.target.closest(".edit-button");
     const deleteButton = event.target.closest(".delete-button");
 
@@ -1351,6 +1684,18 @@
 
       if (!confirmed) return;
 
+      if (canUseCloud()) {
+        setSyncing(true);
+        try {
+          await deleteCloudRecord(currentUser.uid, id);
+        } catch (error) {
+          console.error("Firestoreからの削除に失敗しました", error);
+          showToast("クラウド削除に失敗したため、この端末のみ更新します。");
+        } finally {
+          setSyncing(false);
+        }
+      }
+
       records = records.filter((item) => item.id !== id);
       saveRecords();
       renderRecords();
@@ -1371,8 +1716,11 @@
     if (file) importRecords(file);
     importFile.value = "";
   });
+  loginButton.addEventListener("click", signInWithGoogle);
+  logoutButton.addEventListener("click", signOutGoogle);
+  migrateButton.addEventListener("click", migrateLocalRecordsToCloud);
 
-  $("clearAllButton").addEventListener("click", () => {
+  $("clearAllButton").addEventListener("click", async () => {
     if (records.length === 0) {
       showToast("削除する記録がありません");
       return;
@@ -1383,6 +1731,18 @@
     );
 
     if (!confirmed) return;
+
+    if (canUseCloud()) {
+      setSyncing(true);
+      try {
+        await clearCloudRecords(currentUser.uid, records);
+      } catch (error) {
+        console.error("Firestore全削除に失敗しました", error);
+        showToast("クラウド全削除に失敗したため、この端末のみ削除しました。");
+      } finally {
+        setSyncing(false);
+      }
+    }
 
     records = [];
     saveRecords();
@@ -1397,6 +1757,8 @@
   dateInput.value = getToday();
   updateOtherStoreVisibility();
   EXERCISES.forEach((exercise) => renderExerciseEntries(exercise.key));
+  updateAuthUi();
   renderRecords();
   drawChart();
+  initFirebase();
 })();
