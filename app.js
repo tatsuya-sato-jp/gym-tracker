@@ -781,7 +781,7 @@
 
   function parseLegacyNote(note) {
     const lines = String(note || "")
-      .split(/\r?\n/)
+      .split(/\r?\n|\\n/)
       .map((line) => line.trim())
       .filter(Boolean);
     const storeNames = ["原宿アネックス", "銀座東京", "浜松町", "表参道", "原宿", "渋谷"];
