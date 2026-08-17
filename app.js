@@ -292,6 +292,18 @@
           drawChart();
         }
       });
+
+      auth
+        .getRedirectResult()
+        .then((result) => {
+          if (result && result.user) {
+            showToast("Googleログインが完了しました");
+          }
+        })
+        .catch((error) => {
+          console.error("リダイレクトログインの結果を取得できませんでした", error);
+          showToast(describeAuthError(error));
+        });
     } catch (error) {
       console.error("Firebaseの初期化に失敗しました", error);
       cloudEnabled = false;
@@ -1520,17 +1532,47 @@
     }, 2400);
   }
 
+  function describeAuthError(error) {
+    const code = error && error.code ? error.code : "";
+    if (code === "auth/unauthorized-domain") {
+      return "このドメインはFirebaseで許可されていません。Firebaseの承認済みドメイン設定を確認してください。";
+    }
+    if (code === "auth/operation-not-allowed") {
+      return "FirebaseでGoogleログインが有効になっていません。Authenticationの設定を確認してください。";
+    }
+    if (code === "auth/network-request-failed") {
+      return "通信に失敗しました。ネットワーク接続を確認してもう一度お試しください。";
+    }
+    return "Googleログインに失敗しました。時間をおいてもう一度お試しください。";
+  }
+
   async function signInWithGoogle() {
     if (!cloudEnabled || !auth) {
       showToast("Firebase設定後にGoogleログインできます");
       return;
     }
+
+    const provider = new firebase.auth.GoogleAuthProvider();
+
     try {
-      const provider = new firebase.auth.GoogleAuthProvider();
       await auth.signInWithPopup(provider);
+      return;
     } catch (error) {
-      console.error("Googleログインに失敗しました", error);
-      showToast("Googleログインに失敗しました。ポップアップ許可を確認してください。");
+      console.warn("ポップアップ方式のGoogleログインに失敗しました", error);
+
+      const code = error && error.code ? error.code : "";
+      if (code === "auth/unauthorized-domain" || code === "auth/operation-not-allowed") {
+        showToast(describeAuthError(error));
+        return;
+      }
+    }
+
+    try {
+      showToast("Googleログイン画面へ移動します。戻ってきたらログイン完了です。");
+      await auth.signInWithRedirect(provider);
+    } catch (redirectError) {
+      console.error("リダイレクト方式のGoogleログインに失敗しました", redirectError);
+      showToast(describeAuthError(redirectError));
     }
   }
 
