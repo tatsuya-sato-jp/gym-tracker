@@ -1,5 +1,5 @@
 window.FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAuYzUMDu9XFi78CITfcW-n4qMtL4tcc",
+  apiKey: "AIzaSyCyyX0vXGjClZrV2LQ22Y8PsXwAx-tQRfw",
   authDomain: "gym-tracker-8fc64.firebaseapp.com",
   projectId: "gym-tracker-8fc64",
   storageBucket: "gym-tracker-8fc64.firebasestorage.app",
