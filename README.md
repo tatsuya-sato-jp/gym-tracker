@@ -112,3 +112,7 @@ window.FIREBASE_CONFIG = {
 4. 追加・編集・削除・全削除が Firestore に反映される
 5. `この端末の既存記録をFirestoreへ移行` で localStorage データを移行できる
 6. Firebase設定未入力でもローカル保存で利用できる
+
+Draft PR test
+
+
