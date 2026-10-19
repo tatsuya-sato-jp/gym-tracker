@@ -1558,6 +1558,13 @@
       await auth.signInWithPopup(provider);
     } catch (error) {
       logAuthError("Popup", error);
+      if (
+        ["auth/popup-blocked", "auth/operation-not-supported-in-this-environment"]
+          .includes(error?.code)
+      ) {
+        showToast("ポップアップがブロックされました。ブラウザでポップアップを許可して再試行してください。");
+        return;
+      }
       showToast(describeAuthError(error));
     }
   }
