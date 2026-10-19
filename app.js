@@ -1558,6 +1558,18 @@
       await auth.signInWithPopup(provider);
     } catch (error) {
       logAuthError("Popup", error);
+      if (
+        ["auth/popup-blocked", "auth/operation-not-supported-in-this-environment"]
+          .includes(error?.code)
+      ) {
+        try {
+          await auth.signInWithRedirect(provider);
+        } catch (redirectError) {
+          logAuthError("Redirect", redirectError);
+          showToast(describeAuthError(redirectError));
+        }
+        return;
+      }
       showToast(describeAuthError(error));
     }
   }
