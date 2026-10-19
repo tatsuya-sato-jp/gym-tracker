@@ -11,6 +11,23 @@ Firebase を設定すると、**Pixel 10 とパソコンで同じ記録を共有
 
 ---
 
+## GitHub Pages が 404 になった場合（公開設定を変更した後など）
+
+リポジトリをプライベートにすると、契約プランによっては GitHub Pages の公開が停止します。パブリックに戻した後も、Pages の再設定と再デプロイが必要な場合があります。
+
+1. この変更を `main` にマージする
+2. リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** に設定する
+3. **Actions → Deploy GitHub Pages → Run workflow** でブランチ `main` を選び、実行する
+   - Actions が無効になっている場合は、先に **Settings → Actions → General** で GitHub 公式 Actions の実行を許可する
+4. `build` と `deploy` の成功を確認し、https://tatsuya-sato-jp.github.io/gym-tracker/ を開く
+   - 反映まで数分かかる場合があります
+
+以降は `main` への更新時に自動デプロイされます。公開するのは `index.html`、`styles.css`、`app.js`、`firebase-config.js` のみで、ビルドや追加のシークレットは不要です。保存済みの記録や Firebase 設定は変更しません。
+
+> Pages が無効な状態では、ワークフローの追加だけでは公開されません。上記の **Settings → Pages** の設定を必ず確認してください。
+
+---
+
 ## 1. 最初に必ずバックアップ（重要）
 
 1. アプリを開く
