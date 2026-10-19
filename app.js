@@ -1562,12 +1562,7 @@
         ["auth/popup-blocked", "auth/operation-not-supported-in-this-environment"]
           .includes(error?.code)
       ) {
-        try {
-          await auth.signInWithRedirect(provider);
-        } catch (redirectError) {
-          logAuthError("Redirect", redirectError);
-          showToast(describeAuthError(redirectError));
-        }
+        showToast("ポップアップがブロックされました。ブラウザでポップアップを許可して再試行してください。");
         return;
       }
       showToast(describeAuthError(error));
